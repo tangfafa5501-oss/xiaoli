@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小离</title>
+<link rel="icon" href="favicon.png">
+<style>
+  :root { --warm:#c9774a; --ink:#3a2a20; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    background: #2b2019; color: var(--ink); overflow: hidden;
+  }
+  .backdrop { position: fixed; inset: -40px; background: url(xiaoli.jpg) center/cover; filter: blur(30px) brightness(.6); }
+  .app {
+    position: relative; height: 100%; max-width: 520px; margin: 0 auto; overflow: hidden;
+    background: url(xiaoli.jpg) center top/cover no-repeat; box-shadow: 0 0 40px rgba(0,0,0,.4);
+    display: flex; flex-direction: column;
+  }
+  .app::after { content:""; position:absolute; inset:0; pointer-events:none;
+    background: linear-gradient(to bottom, rgba(40,26,18,0) 30%, rgba(40,26,18,.55) 62%, rgba(40,26,18,.88) 100%); }
+  .name { position: relative; z-index: 2; margin: 16px 18px 0; align-self: flex-start;
+    padding: 6px 14px; border-radius: 999px; color: #fff; font-size: 15px;
+    background: rgba(255,248,240,.22); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.35); }
+  .name b { font-size: 17px; margin-right: 6px; }
+  .spacer { flex: 1 1 auto; min-height: 120px; }
+  .chat { position: relative; z-index: 2; flex: 0 1 auto; max-height: 55%; overflow-y: auto;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 36px); mask-image: linear-gradient(to bottom, transparent 0, #000 36px); padding-top: 30px;
+    padding: 8px 16px 6px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+  .chat::-webkit-scrollbar { width: 6px; } .chat::-webkit-scrollbar-thumb { background: rgba(255,255,255,.3); border-radius: 3px; }
+  .msg { max-width: 86%; padding: 11px 15px; border-radius: 18px; font-size: 17px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word; animation: pop .25s ease-out; }
+  .her { align-self: flex-start; background: rgba(255,250,245,.9); border-bottom-left-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+  .me  { align-self: flex-end; background: #f3d9c4; border-bottom-right-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .dots span { display:inline-block; width:7px; height:7px; margin:0 2px; border-radius:50%; background:#b48a6e; animation: b 1.2s infinite; }
+  .dots span:nth-child(2){animation-delay:.2s} .dots span:nth-child(3){animation-delay:.4s}
+  @keyframes b { 0%,60%,100%{opacity:.3; transform:translateY(0)} 30%{opacity:1; transform:translateY(-4px)} }
+  .chips { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 16px 8px; }
+  .chip { border: 1px solid rgba(255,255,255,.5); background: rgba(255,248,240,.2); color: #fff; backdrop-filter: blur(8px);
+    padding: 8px 14px; border-radius: 999px; font: inherit; font-size: 15px; cursor: pointer; }
+  .chip:hover { background: rgba(255,248,240,.35); }
+  .bar { position: relative; z-index: 2; display: flex; gap: 10px; align-items: flex-end; padding: 10px 14px 16px; }
+  textarea { flex: 1; resize: none; border: none; outline: none; border-radius: 22px; padding: 12px 16px;
+    font: inherit; font-size: 17px; line-height: 1.4; max-height: 120px; background: rgba(255,250,245,.95); color: var(--ink); }
+  textarea::placeholder { color: #a8907f; }
+  .send { flex: none; height: 46px; padding: 0 20px; border: none; border-radius: 23px; background: var(--warm); color: #fff;
+    font: inherit; font-size: 17px; cursor: pointer; }
+  .send:disabled { background: #9c8676; cursor: default; }
+  .wake { position: absolute; z-index: 5; left: 50%; bottom: 120px; transform: translateX(-50%); width: 82%;
+    text-align: center; color: #fff; font-size: 17px; line-height: 1.7; padding: 16px 18px; border-radius: 18px;
+    background: rgba(40,26,18,.55); backdrop-filter: blur(10px); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+<div class="app">
+  <div class="name"><b>小离</b>在这儿陪你</div>
+  <div class="spacer"></div>
+  <div class="chat" id="chat"></div>
+  <div class="chips hidden" id="chips"></div>
+  <div class="bar">
+    <textarea id="input" rows="1" placeholder="在这里打字，按回车发给小离" disabled></textarea>
+    <button class="send" id="send" disabled>发送</button>
+  </div>
+  <div class="wake" id="wake">小离正在醒来，稍等一下下…<br><span class="dots"><span></span><span></span><span></span></span></div>
+</div>
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const send = document.getElementById('send');
+const chips = document.getElementById('chips');
+const wake = document.getElementById('wake');
+const history = [];   // {role, content}
+let busy = false;
+
+// Keep the app alive while this window is open.
+try { new EventSource('/api/alive'); } catch (e) {}
+
+function greetingWord() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return '早上好';
+  if (h >= 11 && h < 13) return '中午好';
+  if (h >= 13 && h < 18) return '下午好';
+  return '晚上好';
+}
+
+// Remove any thinking text and simple formatting marks the small model may produce.
+function tidy(t) {
+  t = t.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<think>[\s\S]*$/, '').replace(/<\/?think>/g, '');
+  t = t.replace(/\/no_think/g, '').replace(/\*\*/g, '').replace(/^#{1,6}\s*/gm, '');
+  return t.replace(/[ \t]+\n/g, '\n').replace(/^\s+/, '');
+}
+
+function addBubble(who, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (who === 'me' ? 'me' : 'her');
+  d.textContent = text;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+function typingBubble() {
+  const d = addBubble('her', '');
+  d.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+  return d;
+}
+
+function setBusy(b) {
+  busy = b;
+  send.disabled = b;
+  input.disabled = false;
+  if (!b) input.focus();
+}
+
+async function typeOut(el, text) {
+  el.textContent = '';
+  for (const ch of text) {
+    el.textContent += ch;
+    chat.scrollTop = chat.scrollHeight;
+    await new Promise(r => setTimeout(r, 28));
+  }
+}
+
+function showChips() {
+  const ideas = ['帮我写一条请假消息', '这条短信是不是骗子？', '今晚吃点什么好？', '陪我随便聊聊'];
+  chips.innerHTML = '';
+  for (const s of ideas) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = s;
+    b.onclick = () => { input.value = s; ask(); };
+    chips.appendChild(b);
+  }
+  chips.classList.remove('hidden');
+}
+
+async function ask() {
+  const text = input.value.trim();
+  if (!text || busy) return;
+  chips.classList.add('hidden');
+  input.value = ''; autosize();
+  addBubble('me', text);
+  history.push({ role: 'user', content: text });
+  setBusy(true);
+  const bubble = typingBubble();
+  let raw = '';
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history.slice(-20) })
+    });
+    if (!res.ok || !res.body) throw new Error('bad');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const j = JSON.parse(data);
+          const piece = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+          if (piece) {
+            raw += piece;
+            const shown = tidy(raw);
+            if (shown) { bubble.textContent = shown; chat.scrollTop = chat.scrollHeight; }
+          }
+        } catch (e) {}
+      }
+    }
+    const final = tidy(raw).trim();
+    if (!final) throw new Error('empty');
+    bubble.textContent = final;
+    history.push({ role: 'assistant', content: final });
+  } catch (e) {
+    bubble.textContent = '哎呀，我刚才走神了，没听清。你能再说一遍吗？';
+    history.pop();
+  }
+  setBusy(false);
+}
+
+function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
+input.addEventListener('input', autosize);
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ask(); }
+});
+send.onclick = ask;
+
+async function waitForBrain() {
+  for (;;) {
+    try {
+      const s = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      if (s.ready) return true;
+      if (s.failed) { wake.innerHTML = s.message || '小离没能醒来，请关掉窗口再试一次。'; return false; }
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+(async () => {
+  const ok = await waitForBrain();
+  if (!ok) return;
+  wake.classList.add('hidden');
+  const hello = greetingWord() + '呀！我是小离～\n有什么想问的、想聊的，直接在下面打字告诉我就好。不知道说什么的话，点点下面的小卡片也行。';
+  const b = addBubble('her', '');
+  await typeOut(b, hello);
+  history.push({ role: 'assistant', content: hello });
+  showChips();
+  input.disabled = false; send.disabled = false; input.focus();
+})();
+</script>
+</body>
+</html>
