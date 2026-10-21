@@ -1,0 +1,62 @@
+name: Build & publish Windows zip
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        default: v0.1
+      publish:
+        description: Upload the final zip and publish the release (false = build + smoke test only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  BASE_ASSET: XiaoLi-v0.1-base-no-model.zip
+  FINAL_ASSET: XiaoLi-v0.1-Windows-x64.zip
+  MODEL_URL: https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf
+  MODEL_SHA256: b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download base zip from the release
+        run: gh release download "${{ inputs.tag }}" -p "$BASE_ASSET" -D build --clobber
+
+      - name: Download model
+        run: curl -fL --retry 5 --retry-delay 5 -o build/model.gguf "$MODEL_URL"
+
+      - name: Assemble final zip
+        run: python .github/release/assemble.py "build/$BASE_ASSET" build/model.gguf "$MODEL_SHA256" "build/$FINAL_ASSET"
+
+      - name: Size and checksum
+        run: |
+          ls -l "build/$FINAL_ASSET"
+          sha256sum "build/$FINAL_ASSET" | tee build/sha256.txt
+          echo "**$FINAL_ASSET** $(stat -c %s build/$FINAL_ASSET) bytes, sha256 \`$(cut -d' ' -f1 build/sha256.txt)\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Real-Windows smoke test
+        run: python .github/release/smoke_test.py "build/$FINAL_ASSET" "$RUNNER_TEMP/smoke"
+
+      - name: Upload to release and publish
+        if: ${{ inputs.publish }}
+        run: |
+          gh release upload "${{ inputs.tag }}" "build/$FINAL_ASSET" --clobber
+          gh release delete-asset "${{ inputs.tag }}" "$BASE_ASSET" -y || true
+          gh release edit "${{ inputs.tag }}" --draft=false --latest
+          gh release view "${{ inputs.tag }}" --json url,isDraft,assets
