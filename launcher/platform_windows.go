@@ -91,7 +91,7 @@ func openWindow(url string) {
 		cmd := exec.Command(b,
 			"--app="+url,
 			"--user-data-dir="+filepath.Join(userDataDir(), "window"),
-			"--window-size=480,860",
+			"--window-size=1024,640",
 			"--no-first-run",
 			"--no-default-browser-check",
 			"--disable-sync",

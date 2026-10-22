@@ -6,65 +6,101 @@
 <title>小离</title>
 <link rel="icon" href="favicon.png">
 <style>
-  :root { --warm:#c9774a; --ink:#3a2a20; }
+  :root { color-scheme: dark; --column: min(560px, 46vw); --input-height: 52px; }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  body {
-    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
-    background: #2b2019; color: var(--ink); overflow: hidden;
-  }
-  .backdrop { position: fixed; inset: -40px; background: url(xiaoli.jpg) center/cover; filter: blur(30px) brightness(.6); }
-  .app {
-    position: relative; height: 100%; max-width: 520px; margin: 0 auto; overflow: hidden;
-    background: url(xiaoli.jpg) center top/cover no-repeat; box-shadow: 0 0 40px rgba(0,0,0,.4);
-    display: flex; flex-direction: column;
-  }
-  .app::after { content:""; position:absolute; inset:0; pointer-events:none;
-    background: linear-gradient(to bottom, rgba(40,26,18,0) 30%, rgba(40,26,18,.55) 62%, rgba(40,26,18,.88) 100%); }
-  .name { position: relative; z-index: 2; margin: 16px 18px 0; align-self: flex-start;
-    padding: 6px 14px; border-radius: 999px; color: #fff; font-size: 15px;
-    background: rgba(255,248,240,.22); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.35); }
-  .name b { font-size: 17px; margin-right: 6px; }
-  .spacer { flex: 1 1 auto; min-height: 120px; }
-  .chat { position: relative; z-index: 2; flex: 0 1 auto; max-height: 55%; overflow-y: auto;
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 36px); mask-image: linear-gradient(to bottom, transparent 0, #000 36px); padding-top: 30px;
-    padding: 8px 16px 6px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
-  .chat::-webkit-scrollbar { width: 6px; } .chat::-webkit-scrollbar-thumb { background: rgba(255,255,255,.3); border-radius: 3px; }
-  .msg { max-width: 86%; padding: 11px 15px; border-radius: 18px; font-size: 17px; line-height: 1.6;
-    white-space: pre-wrap; word-break: break-word; animation: pop .25s ease-out; }
-  .her { align-self: flex-start; background: rgba(255,250,245,.9); border-bottom-left-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
-  .me  { align-self: flex-end; background: #f3d9c4; border-bottom-right-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
-  @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  .dots span { display:inline-block; width:7px; height:7px; margin:0 2px; border-radius:50%; background:#b48a6e; animation: b 1.2s infinite; }
-  .dots span:nth-child(2){animation-delay:.2s} .dots span:nth-child(3){animation-delay:.4s}
-  @keyframes b { 0%,60%,100%{opacity:.3; transform:translateY(0)} 30%{opacity:1; transform:translateY(-4px)} }
-  .chips { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 16px 8px; }
-  .chip { border: 1px solid rgba(255,255,255,.5); background: rgba(255,248,240,.2); color: #fff; backdrop-filter: blur(8px);
-    padding: 8px 14px; border-radius: 999px; font: inherit; font-size: 15px; cursor: pointer; }
-  .chip:hover { background: rgba(255,248,240,.35); }
-  .bar { position: relative; z-index: 2; display: flex; gap: 10px; align-items: flex-end; padding: 10px 14px 16px; }
-  textarea { flex: 1; resize: none; border: none; outline: none; border-radius: 22px; padding: 12px 16px;
-    font: inherit; font-size: 17px; line-height: 1.4; max-height: 120px; background: rgba(255,250,245,.95); color: var(--ink); }
-  textarea::placeholder { color: #a8907f; }
-  .send { flex: none; height: 46px; padding: 0 20px; border: none; border-radius: 23px; background: var(--warm); color: #fff;
-    font: inherit; font-size: 17px; cursor: pointer; }
-  .send:disabled { background: #9c8676; cursor: default; }
-  .wake { position: absolute; z-index: 5; left: 50%; bottom: 120px; transform: translateX(-50%); width: 82%;
-    text-align: center; color: #fff; font-size: 17px; line-height: 1.7; padding: 16px 18px; border-radius: 18px;
-    background: rgba(40,26,18,.55); backdrop-filter: blur(10px); }
+  body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    background: #20222b; color: rgb(255,252,246); overflow: hidden; }
+  .app { position: relative; width: 100%; height: 100%; overflow: hidden;
+    background: url(office_morning.jpg) 62% center / cover no-repeat; }
+  .app::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(10,12,20,.47), transparent 8%),
+      linear-gradient(to bottom, transparent 60%, rgba(10,12,20,.78)); }
+  .info, .msg.her, .wake { background: rgba(20,24,36,.47); backdrop-filter: blur(13px);
+    border: 1px solid rgba(255,255,255,.24); box-shadow: 0 8px 28px rgba(0,0,0,.16); }
+  .info { position: absolute; left: 26px; top: 24px; border-radius: 18px; padding: 14px 20px; }
+  .date { font-size: 13px; color: rgba(255,255,255,.78); }
+  .greeting { margin-top: 7px; font-size: 17px; font-weight: 500; color: #fff; }
+  .chat { position: absolute; left: 40px; bottom: calc(150px + var(--input-height) - 52px);
+    width: var(--column); max-height: min(45vh, calc(100% - 270px)); overflow-y: auto;
+    mask-image: linear-gradient(to bottom, transparent, #000 24px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px);
+    padding: 26px 6px 4px 0; display: flex; flex-direction: column; gap: 12px;
+    overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.3) transparent; }
+  .msg { flex: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.her { position: relative; align-self: flex-start; width: 100%; margin-top: 25px;
+    padding: 16px 24px; border-radius: 22px; font-size: 19px; line-height: 32px; }
+  .msg.her::before { content: "小离"; position: absolute; left: 8px; top: -29px;
+    font-size: 14px; line-height: 24px; font-weight: 500; color: rgb(255,214,170); }
+  .msg.me { align-self: flex-end; max-width: 90%; padding: 9px 16px; border-radius: 18px;
+    font-size: 15px; line-height: 24px; background: rgba(255,255,255,.18); backdrop-filter: blur(13px); }
+  .msg.older { opacity: .45; font-size: 15px; line-height: 25px; }
+  .dots span { display: inline-block; width: 7px; height: 7px; margin: 0 3px; border-radius: 50%;
+    background: rgb(255,214,170); animation: b 1.2s infinite; }
+  .dots span:nth-child(2) { animation-delay: .2s; } .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes b { 0%,60%,100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
+  .chips { position: absolute; left: 40px; bottom: calc(52px + var(--input-height));
+    display: flex; flex-wrap: wrap; gap: 6px; width: min(560px, calc(100vw - 180px)); }
+  .app:has(.chips:not(.hidden)) .chat { bottom: calc(190px + var(--input-height) - 52px); }
+  .chip { border: 1px solid rgba(255,255,255,.3); background: rgba(20,24,36,.35); color: #fff;
+    backdrop-filter: blur(13px); padding: 6px 12px; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip:hover { background: rgba(255,255,255,.28); }
+  .bar { position: absolute; left: 40px; bottom: 40px; display: flex; align-items: center; gap: 16px; }
+  .composer { width: var(--composer, min(520px, calc(100vw - 180px))); min-height: 52px; display: flex; align-items: center;
+    padding: 5px 7px 5px 16px; gap: 8px; border-radius: 26px; background: rgba(255,255,255,.18);
+    border: 1px solid rgba(255,255,255,.35); backdrop-filter: blur(13px); }
+  textarea { flex: 1; min-width: 0; width: 0; resize: none; border: 0; outline: none;
+    padding: 8px 0; font: inherit; font-size: 16px; line-height: 24px; height: 40px; max-height: 120px;
+    background: transparent; color: #fff; }
+  textarea::placeholder { color: rgba(255,255,255,.67); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .send { flex: none; height: 36px; padding: 0 13px; border: 0; border-radius: 20px;
+    background: #d99465; color: #fff; font: inherit; font-size: 14px; cursor: pointer; }
+  .send:disabled { opacity: .45; cursor: default; }
+  .mic-wrap { display: inline-flex; flex: none; }
+  .mic { width: 68px; height: 68px; display: grid; place-items: center; border: 0; border-radius: 50%;
+    background: rgb(250,240,228); color: rgb(150,96,60); box-shadow: 0 0 24px rgba(255,200,150,.45);
+    opacity: .55; cursor: not-allowed; }
+  .mic svg { width: 28px; height: 28px; }
+  .wake { position: absolute; left: 40px; bottom: calc(150px + var(--input-height) - 52px);
+    width: var(--column); border-radius: 22px; padding: 20px 24px; font-size: 17px; line-height: 1.7; }
+  button:focus-visible { outline: 2px solid rgb(255,214,170); outline-offset: 3px; }
+  .composer:focus-within { border-color: rgba(255,255,255,.65); }
   .hidden { display: none !important; }
+  @media (min-width: 760px) and (max-aspect-ratio: 5/4) {
+    :root { --column: max(300px, min(360px, 40vw)); }
+    .app { background-position: 28% center; }
+  }
+  @media (max-width: 759px) {
+    :root { --column: calc(100vw - 48px); }
+    .app { background-position: 35% center; }
+    .info { left: 24px; }
+    .chat, .wake, .chips, .bar { left: 24px; }
+    .composer { width: calc(100vw - 132px); }
+    .chips { width: calc(100vw - 48px); }
+    .mic { width: 60px; height: 60px; }
+    .bar { bottom: 24px; }
+    .chat, .wake { bottom: calc(150px + var(--input-height) - 52px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .dots span { animation: none; } }
 </style>
 </head>
 <body>
-<div class="backdrop"></div>
 <div class="app">
-  <div class="name"><b>小离</b>在这儿陪你</div>
-  <div class="spacer"></div>
+  <div class="info"><div class="date" id="date"></div><div class="greeting" id="greeting"></div></div>
   <div class="chat" id="chat"></div>
   <div class="chips hidden" id="chips"></div>
   <div class="bar">
-    <textarea id="input" rows="1" placeholder="在这里打字，按回车发给小离" disabled></textarea>
-    <button class="send" id="send" disabled>发送</button>
+    <div class="composer">
+      <textarea id="input" rows="1" aria-label="输入消息" placeholder="想说什么，打字或按住麦克风…" disabled></textarea>
+      <button class="send" id="send" aria-label="发送" disabled>发送</button>
+    </div>
+    <span class="mic-wrap" title="语音功能还在开发中，暂时只能打字">
+      <button class="mic" disabled aria-disabled="true" aria-label="语音功能还在开发中，暂时只能打字">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3M8 22h8"/>
+        </svg>
+      </button>
+    </span>
   </div>
   <div class="wake" id="wake">小离正在醒来，稍等一下下…<br><span class="dots"><span></span><span></span><span></span></span></div>
 </div>
@@ -88,6 +124,31 @@ function greetingWord() {
   return '晚上好';
 }
 
+// Keep 小离 (right side of the picture) clear of the UI: pick the background offset that pushes her
+// right edge (~77% of the image) to the window's right edge, then size the subtitle column and
+// input bar so they end before her shoulder (~40% of the image width).
+const app = document.querySelector('.app');
+function layout() {
+  const W = innerWidth, H = innerHeight, s = Math.max(W / 1654, H / 951), iw = 1654 * s;
+  const off = Math.min(iw - W, Math.max(0, 0.77 * iw - W));
+  app.style.backgroundPosition = (-off) + 'px center';
+  const root = document.documentElement.style;
+  if (W < 760) { root.removeProperty('--column'); root.removeProperty('--composer'); return; }
+  const safe = 0.40 * iw - off - 24;   // px from the left edge where her shoulder begins
+  root.setProperty('--column', Math.round(Math.max(300, Math.min(560, safe - 40))) + 'px');
+  root.setProperty('--composer', Math.round(Math.max(340, Math.min(520, safe - 40 - 84))) + 'px');
+}
+layout();
+addEventListener('resize', layout);
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('date').textContent = '今天 · 周' + '日一二三四五六'[now.getDay()] + ' · ' + (now.getMonth() + 1) + '月' + now.getDate() + '日';
+  document.getElementById('greeting').textContent = greetingWord() + ' · ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+}
+updateClock();
+setInterval(updateClock, 30000);
+
 // Remove any thinking text and simple formatting marks the small model may produce.
 function tidy(t) {
   t = t.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<think>[\s\S]*$/, '').replace(/<\/?think>/g, '');
@@ -99,6 +160,9 @@ function addBubble(who, text) {
   const d = document.createElement('div');
   d.className = 'msg ' + (who === 'me' ? 'me' : 'her');
   d.textContent = text;
+  if (who === 'me') {
+    for (const message of chat.children) message.classList.add('older');
+  }
   chat.appendChild(d);
   chat.scrollTop = chat.scrollHeight;
   return d;
@@ -189,7 +253,7 @@ async function ask() {
   setBusy(false);
 }
 
-function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
+function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; document.documentElement.style.setProperty('--input-height', Math.max(52, input.offsetHeight + 12) + 'px'); }
 input.addEventListener('input', autosize);
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ask(); }
