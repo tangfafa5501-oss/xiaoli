@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>陪伴动作实验室 · 本地 3D</title><link rel="stylesheet" href="./style.css">
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script></head>
+<body>
+<main>
+ <section class="stage" aria-label="可旋转的三维角色舞台">
+  <header><span class="brand">陪伴动作实验室<span class="dot"></span></span><span class="local">本地运行 · 原创占位角色</span></header>
+  <div id="viewport"></div>
+  <div class="stage-top"><span class="live"><i></i>真实 3D 骨骼动画</span><button id="view" class="quiet">切换侧面</button></div>
+  <div class="caption"><p id="state-name">安静陪伴</p><span id="state-note">呼吸与视线错开节奏，手臂自然垂落。</span></div>
+  <div class="transport"><button id="pause" class="circle" aria-label="暂停播放">Ⅱ</button><div class="progress"><div id="progress"></div></div><span id="time">0.0 s</span><button id="reset" class="quiet">回到待机</button></div>
+  <p class="stage-hint">拖动旋转 · 滚轮缩放 · 空格暂停</p>
+ </section>
+ <aside>
+  <div class="intro"><p class="edition">动作研究 / 01</p><h1>让陪伴<br>从一个动作开始。</h1><p>克制、专注，有一点温柔。<br>先把细微回应，变成看得见的动作。</p></div>
+  <button id="demo" class="primary">播放完整互动 <span>↗</span></button>
+  <div class="section-label"><h2>试一段回应</h2><span>点击可随时切换</span></div>
+  <div id="actions" class="actions"></div>
+  <button id="interrupt" class="interrupt">我想接着说 <span>打断 → 聆听</span></button>
+  <div class="settings"><label>动作幅度 <output id="amount">100%</output><input aria-label="动作幅度" id="intensity" type="range" min="0.4" max="1" step="0.05" value="1"></label><label>播放速度 <output id="rate">1.0×</output><input aria-label="播放速度" id="speed" type="range" min="0.5" max="1.5" step="0.1" value="1"></label><label>逐帧查看 <output id="phase">0%</output><input aria-label="动作相位" id="seek" type="range" min="0" max="100" step="1" value="0"></label><label class="check"><input id="skeleton" type="checkbox"> 显示骨骼</label></div>
+  <details><summary>交付与验证</summary><p>不是 Olivia Lin 官方模型。口型为无声示意，未接入麦克风或 AI。</p><div class="exports"><button id="export">保存动画 GLB</button><button id="record">录制 24 秒预览</button><button id="test">验证动作层</button><button id="snapshot">保存当前画面</button></div><p id="result" role="status">文件只保存到本地任务目录。</p><p id="metrics">正在建立场景…</p></details>
+  <footer>独立 3D 动作原型 · BSide 为体验参考<br>AIRI 为架构参考 · <a href="./动作规格与接入说明.md" target="_blank">动作规格与接入说明</a></footer>
+ </aside>
+</main><div id="error" role="alert" hidden></div><script type="module" src="./app.mjs"></script>
+</body></html>

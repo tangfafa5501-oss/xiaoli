@@ -1,0 +1,45 @@
+{
+  "createdAt": "2026-10-23T10:36:26.218Z",
+  "total": 8,
+  "passed": 8,
+  "checks": [
+    {
+      "name": "所有动作全时段参数有限且腕部目标可达",
+      "pass": true
+    },
+    {
+      "name": "眨眼完整闭合并恢复，间隔非等长",
+      "pass": true
+    },
+    {
+      "name": "挥手与待机有可见三维位移差异",
+      "pass": true
+    },
+    {
+      "name": "低优先级自动动作不打断聆听",
+      "pass": true
+    },
+    {
+      "name": "用户打断立即接受且第一帧姿态连续",
+      "pass": true
+    },
+    {
+      "name": "任意两动作快速切换不产生数值错误",
+      "pass": true
+    },
+    {
+      "name": "单次动作结束后自动回待机",
+      "pass": true
+    },
+    {
+      "name": "说话口型含停顿且情绪不控制 mouth 通道",
+      "pass": true
+    }
+  ],
+  "webgl": {
+    "version": "WebGL2",
+    "triangles": 44954,
+    "calls": 63,
+    "bones": 35
+  }
+}

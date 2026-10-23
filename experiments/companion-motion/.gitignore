@@ -1,0 +1,14 @@
+node_modules/
+generated/
+runtime.json
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+__pycache__/
+*.pyc

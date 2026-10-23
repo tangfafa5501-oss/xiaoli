@@ -1,0 +1,59 @@
+{
+  "format": "glTF 2.0 binary",
+  "bytes": 1221532,
+  "skinnedMeshes": 1,
+  "bones": 35,
+  "skins": 1,
+  "clipCount": 9,
+  "waveWristDisplacementMetres": 0.6597950633349657,
+  "idleLoopMaxEndpointDelta": 2.2043641609453735e-18,
+  "animationSamplesChecked": 270,
+  "clips": [
+    {
+      "name": "idle",
+      "duration": 9,
+      "tracks": 129
+    },
+    {
+      "name": "listen",
+      "duration": 6,
+      "tracks": 129
+    },
+    {
+      "name": "think",
+      "duration": 5.400000095367432,
+      "tracks": 129
+    },
+    {
+      "name": "speak",
+      "duration": 6.800000190734863,
+      "tracks": 129
+    },
+    {
+      "name": "wave",
+      "duration": 3.4000000953674316,
+      "tracks": 129
+    },
+    {
+      "name": "happy",
+      "duration": 3.5,
+      "tracks": 129
+    },
+    {
+      "name": "confused",
+      "duration": 3.799999952316284,
+      "tracks": 129
+    },
+    {
+      "name": "nod",
+      "duration": 2.299999952316284,
+      "tracks": 129
+    },
+    {
+      "name": "bye",
+      "duration": 4.099999904632568,
+      "tracks": 129
+    }
+  ],
+  "passed": true
+}

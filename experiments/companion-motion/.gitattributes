@@ -1,0 +1,11 @@
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.command text eol=lf
+*.cmd text eol=crlf
+*.glb binary
+*.webm binary
+*.png binary
