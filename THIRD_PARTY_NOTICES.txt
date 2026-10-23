@@ -1,0 +1,25 @@
+小离 v0.3 — 第三方组件说明
+
+1. MeloTTS Chinese+English, sherpa-onnx vits-melo-tts-zh_en, sid=0
+   原作者: MyShell.ai / MeloTTS contributors. MIT.
+   https://github.com/myshell-ai/MeloTTS
+   https://modelscope.cn/models/myshell-ai/MeloTTS-Chinese
+   转换包: https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
+   随包保留 models/tts/LICENSE、README.md 和 dict/README.md。
+   使用原 FP32 模型，移除未使用的 model.int8.onnx，不修改权重。
+   ModelScope 的原 checkpoint 不能直接替代此 sherpa 转换包。
+
+2. sherpa-onnx 1.13.8, Copyright Xiaomi Corporation and contributors.
+   Apache-2.0. https://github.com/k2-fsa/sherpa-onnx
+   ONNX Runtime 1.28.2 (随该 sherpa 官方 CPU 预编译包附带), Microsoft, MIT.
+   https://github.com/microsoft/onnxruntime
+   CppJieba / Jieba dictionaries, MIT.
+   https://github.com/yanyiwu/cppjieba / https://github.com/fxsjy/jieba
+   许可证及 ONNX Runtime 的 ThirdPartyNotices 见 runtime/tts/licenses/。下载包 SHA256 见 TTS-ASSETS-SHA256.json。
+   tts/vendor/c-api.h 是 sherpa-onnx 1.13.8 原始 C API 头文件；worker.c 为小离新增适配。
+
+3. llama.cpp b11799 (MIT), LLVM OpenMP (Apache-2.0 with LLVM exceptions),
+   Qwen3-1.7B Q4_K_M (Apache-2.0): 既有许可证见 runtime/licenses/。
+   Windows VC++ runtime DLLs 随原 v0.2 基础包保留。
+
+所有推理和合成在本机 CPU 执行。运行期间不下载模型，不访问云端 TTS。

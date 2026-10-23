@@ -1,125 +1,137 @@
-"""Real-Windows smoke test of the final zip.
-A: start runtime\\llama-server.exe with the launcher's arguments and chat once.
-B: start 小离.exe, wait until it reports ready, chat once through its /api/chat."""
-import json, os, re, subprocess, sys, time, urllib.request, zipfile
+"""Windows final-package smoke: real launcher, real chat + CPU Melo, process-tree RSS.
+No microphone or physical speaker assertion; WAV endpoint audio is validated."""
+import array, io, json, math, os, pathlib, re, subprocess, sys, threading, time
+import urllib.request, wave, zipfile
+import psutil
 
-zip_path, work = sys.argv[1], sys.argv[2]
+zip_path, work = sys.argv[1:3]
+work = pathlib.Path(work)
 zipfile.ZipFile(zip_path).extractall(work)
-app = os.path.join(work, "小离")
-rt = os.path.join(app, "runtime")
-persona = open(os.path.join(rt, "persona.txt"), encoding="utf-8").read()
-summary = []
+app = work / '小离'
+data_dir = pathlib.Path(os.environ['LOCALAPPDATA']) / 'XiaoLi'
+port_file = data_dir / 'port.txt'
+port_file.unlink(missing_ok=True)
+metrics = {'rss_sample_interval_s': 0.1, 'peak_total_rss_mib': 0,
+           'peak_by_process_mib': {}, 'browser_included': False}
+stop = threading.Event()
+launcher = None
+known = {}
 
-def check_reply(text, label):
-    print(f"[{label}] reply: {text!r}")
-    assert text.strip(), f"{label}: empty reply"
-    assert "<think" not in text.lower(), f"{label}: thinking text leaked"
-    assert re.search(r"[\u4e00-\u9fff]", text), f"{label}: reply has no Chinese"
-    summary.append(f"- {label}: {text.strip()}")
+def post(url, body):
+    return urllib.request.urlopen(urllib.request.Request(url, data=json.dumps(body).encode(),
+        headers={'Content-Type': 'application/json'}), timeout=120)
 
-def post(url, body, timeout=300):
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-    return urllib.request.urlopen(req, timeout=timeout)
-
-def wait_http(url, ok, proc=None, limit=300, logfile=None):
-    t = time.time()
-    while time.time() - t < limit:
-        if proc is not None and proc.poll() is not None:
-            dump(logfile)
-            sys.exit(f"process exited early with code {proc.returncode}")
+def monitor():
+    while not stop.is_set():
         try:
-            r = urllib.request.urlopen(url, timeout=5)
-            if ok(r):
-                return time.time() - t
-        except Exception:
-            pass
-        time.sleep(1)
-    dump(logfile)
-    sys.exit(f"timeout waiting for {url}")
+            procs = [psutil.Process(launcher.pid)] + psutil.Process(launcher.pid).children(recursive=True)
+            total = 0
+            for proc in procs:
+                try:
+                    name = proc.name()
+                    if name.lower() not in ('小离.exe', 'llama-server.exe', 'xiaoli-tts.exe'): continue
+                    known[proc.pid] = name
+                    rss = proc.memory_info().rss / 2**20
+                    total += rss
+                    metrics['peak_by_process_mib'][name] = max(rss, metrics['peak_by_process_mib'].get(name, 0))
+                except psutil.Error: pass
+            metrics['peak_total_rss_mib'] = max(total, metrics['peak_total_rss_mib'])
+        except psutil.Error: pass
+        stop.wait(0.1)
 
-def dump(path):
-    if path and os.path.exists(path):
-        print(f"----- {path} -----")
-        print(open(path, encoding="utf-8", errors="replace").read()[-6000:])
-
-# ---------- A: llama-server directly ----------
-log_a = os.path.join(work, "server_a.log")
-args = [os.path.join(rt, "llama-server.exe"), "-m", os.path.join(rt, "model.gguf"),
-        "--host", "127.0.0.1", "--port", "18080", "-c", "4096", "-np", "1",
-        "--reasoning", "off", "--chat-template-kwargs", '{"enable_thinking":false}',
-        "--no-webui", "--cache-ram", "256"]
-with open(log_a, "w") as lf:
-    p = subprocess.Popen(args, cwd=rt, stdout=lf, stderr=subprocess.STDOUT, creationflags=0x08000000)
-dt = wait_http("http://127.0.0.1:18080/health", lambda r: r.status == 200, p, logfile=log_a)
-print(f"[A] llama-server ready in {dt:.1f}s")
-t = time.time()
-r = json.load(post("http://127.0.0.1:18080/v1/chat/completions", {
-    "messages": [{"role": "system", "content": persona}, {"role": "user", "content": "你好，你是谁？"}],
-    "max_tokens": 200, "temperature": 0.7, "top_p": 0.8, "top_k": 20,
-    "chat_template_kwargs": {"enable_thinking": False}}))
-print(f"[A] reply took {time.time()-t:.1f}s, usage {r.get('usage')}")
-check_reply(r["choices"][0]["message"]["content"], "llama-server 直接调用（你好，你是谁？）")
-p.kill(); p.wait()
-dump(log_a)
-time.sleep(2)
-
-# ---------- B: the real launcher ----------
-data_dir = os.path.join(os.environ["LOCALAPPDATA"], "XiaoLi")
-port_file = os.path.join(data_dir, "port.txt")
-if os.path.exists(port_file):
-    os.remove(port_file)
-launcher = subprocess.Popen([os.path.join(app, "小离.exe")], cwd=app)
-t = time.time()
-while not os.path.exists(port_file):
-    if launcher.poll() is not None:
-        dump(os.path.join(data_dir, "launcher.log"))
-        sys.exit(f"小离.exe exited early with code {launcher.returncode}")
-    if time.time() - t > 60:
-        sys.exit("小离.exe never wrote port.txt")
-    time.sleep(0.5)
-port = open(port_file).read().strip()
-print("[B] launcher UI port", port)
-base = f"http://127.0.0.1:{port}"
-html = urllib.request.urlopen(base + "/", timeout=10).read().decode("utf-8")
-assert "小离" in html, "UI page did not load"
-
-def status_ok(r):
-    s = json.load(r)
-    if s.get("failed"):
-        dump(os.path.join(data_dir, "brain.log"))
-        sys.exit("launcher reports failure: " + s.get("message", ""))
-    return s.get("ready")
-dt = wait_http(base + "/api/status", status_ok, launcher, logfile=os.path.join(data_dir, "launcher.log"))
-print(f"[B] launcher brain ready in {dt:.1f}s")
-tl = subprocess.run(["tasklist", "/FI", "IMAGENAME eq llama-server.exe"], capture_output=True, text=True).stdout
-print(tl)
-assert "llama-server.exe" in tl, "launcher did not start llama-server.exe"
-
-resp = post(base + "/api/chat", {"messages": [
-    {"role": "assistant", "content": "下午好呀！我是小离～"},
-    {"role": "user", "content": "有人发短信让我点链接退快递费，还要验证码，是真的吗？"}]})
-text = ""
-for raw in resp:
-    line = raw.decode("utf-8").strip()
-    if line.startswith("data:") and line[5:].strip() != "[DONE]":
+def wait_ready(base):
+    start = started
+    brain_at = None
+    while time.perf_counter()-start < 300:
+        assert launcher.poll() is None, 'launcher exited'
         try:
-            d = json.loads(line[5:])["choices"][0]["delta"].get("content")
-            text += d or ""
-        except Exception:
-            pass
-check_reply(re.sub(r"<think>.*?</think>", "", text, flags=re.S), "小离.exe 启动器（诈骗短信问题）")
+            status = json.load(urllib.request.urlopen(base+'/api/status', timeout=5))
+        except OSError:
+            time.sleep(0.25); continue
+        assert not status.get('failed'), status
+        if status['ready'] and brain_at is None: brain_at = time.perf_counter()-start
+        if status['ready'] and status.get('tts_ready'):
+            metrics['brain_ready_s'] = brain_at
+            metrics['both_ready_s'] = time.perf_counter()-start
+            return
+        time.sleep(0.25)
+    raise AssertionError('brain/TTS readiness timeout')
 
-launcher.kill(); launcher.wait()
-time.sleep(3)
-tl = subprocess.run(["tasklist", "/FI", "IMAGENAME eq llama-server.exe"], capture_output=True, text=True).stdout
-print("[B] after killing launcher:", "llama-server still running!" if "llama-server.exe" in tl else "llama-server stopped (job object works)")
-summary.append("- 关掉启动器后大脑进程：" + ("仍在运行" if "llama-server.exe" in tl else "已自动退出"))
-dump(os.path.join(data_dir, "launcher.log"))
-subprocess.run(["taskkill", "/F", "/IM", "msedge.exe"], capture_output=True)
-subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True)
+def test_tts(base, text, filename):
+    start = time.perf_counter()
+    with post(base+'/api/tts', {'text': text}) as response:
+        assert response.headers.get_content_type() == 'audio/wav'
+        first = response.read(1)
+        ttfb = time.perf_counter()-start
+        audio = first + response.read()
+    elapsed = time.perf_counter()-start
+    (work/filename).write_bytes(audio)
+    with wave.open(io.BytesIO(audio)) as wav:
+        assert wav.getnchannels() == 1 and wav.getsampwidth() == 2
+        sr, frames = wav.getframerate(), wav.getnframes()
+        assert sr >= 16000 and frames > sr/5
+        samples = array.array('h', wav.readframes(frames))
+    rms = math.sqrt(sum(v*v for v in samples)/len(samples))
+    assert rms > 10 and max(abs(v) for v in samples) > 100, f'silent WAV: {rms}'
+    return {'text':text, 'time_to_first_audio_byte_s':ttfb, 'wav_complete_s':elapsed,
+            'audio_duration_s':frames/sr, 'sample_rate':sr, 'rms_pcm16':rms,
+            'meaning':'sentence WAV endpoint; excludes sound-card/browser playback'}
 
-out = os.environ.get("GITHUB_STEP_SUMMARY")
-if out:
-    with open(out, "a", encoding="utf-8") as f:
-        f.write("## Windows 冒烟测试通过\n" + "\n".join(summary) + "\n")
-print("SMOKE TEST PASSED")
+try:
+    started = time.perf_counter()
+    launcher = subprocess.Popen([str(app/'小离.exe')], cwd=app)
+    sampler = threading.Thread(target=monitor, daemon=True); sampler.start()
+    while not port_file.exists():
+        assert launcher.poll() is None, 'launcher exited before port.txt'
+        assert time.perf_counter()-started < 60, 'missing port.txt'
+        time.sleep(0.1)
+    base = 'http://127.0.0.1:' + port_file.read_text().strip()
+    html = urllib.request.urlopen(base+'/').read().decode('utf-8')
+    assert 'id="voice"' in html and '小离' in html
+    wait_ready(base)
+    metrics['tts'] = [test_tts(base, '早上好！今天天气不错。我在呢，有什么事直接跟我说，我帮你搞定。', 'tts-test.wav')]
+    # Run chat while another sentence synthesizes; aggregate RSS includes both workloads.
+    concurrent = []
+    def during_chat():
+        try: concurrent.append(test_tts(base,'我在呢，有什么事直接跟我说，我帮你搞定。','tts-concurrent.wav'))
+        except Exception as e: concurrent.append(e)
+    t = threading.Thread(target=during_chat); t.start()
+    reply = ''
+    with post(base+'/api/chat', {'messages':[{'role':'user','content':'你好，你是谁？请用两句话回答。'}]}) as response:
+        for raw in response:
+            line = raw.decode().strip()
+            if line.startswith('data:') and line[5:].strip() != '[DONE]':
+                obj = json.loads(line[5:])
+                reply += obj['choices'][0]['delta'].get('content') or ''
+    t.join(120)
+    assert not t.is_alive(), 'concurrent TTS hung'
+    assert concurrent and isinstance(concurrent[0],dict), concurrent
+    metrics['tts'] += concurrent
+    assert reply.strip() and re.search('[\u4e00-\u9fff]',reply), reply
+    assert '<think' not in reply.lower(), reply
+    metrics['chat_reply'] = reply
+    assert 'llama-server.exe' in known.values() and 'xiaoli-tts.exe' in known.values(), known
+    # Killing the launcher must close BOTH Windows job handles.
+    launcher.kill(); launcher.wait()
+    time.sleep(3)
+    survivors = {pid:name for pid,name in list(known.items()) if pid != launcher.pid and psutil.pid_exists(pid)}
+    assert not survivors, f'children survived launcher: {survivors}'
+    metrics['children_stopped_on_launcher_exit'] = True
+    metrics['passed'] = True
+    print('SMOKE TEST PASSED', json.dumps(metrics,ensure_ascii=False,indent=2))
+finally:
+    stop.set()
+    if launcher is not None and launcher.poll() is None: launcher.kill(); launcher.wait()
+    for pid in list(known):
+        try: psutil.Process(pid).kill()
+        except psutil.Error: pass
+    metrics.setdefault('passed',False)
+    (work/'metrics.json').write_text(json.dumps(metrics,ensure_ascii=False,indent=2),encoding='utf-8')
+    for filename in ['launcher.log','tts.log','brain.log']:
+        source = data_dir/filename
+        if source.exists():
+            (work/filename).write_bytes(source.read_bytes())
+            print(filename,source.read_text(encoding='utf-8',errors='replace')[-4000:])
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
+            f.write('## Windows v0.3 smoke\n```json\n'+json.dumps(metrics,ensure_ascii=False,indent=2)+'\n```\n')

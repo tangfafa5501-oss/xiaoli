@@ -56,6 +56,10 @@
   .send { flex: none; height: 36px; padding: 0 13px; border: 0; border-radius: 20px;
     background: #d99465; color: #fff; font: inherit; font-size: 14px; cursor: pointer; }
   .send:disabled { opacity: .45; cursor: default; }
+  .voice { position: absolute; top: 24px; right: 24px; border-radius: 999px; padding: 10px 16px;
+    color: #fff; font: inherit; font-size: 14px; cursor: pointer; background: rgba(20,24,36,.47);
+    backdrop-filter: blur(13px); border: 1px solid rgba(255,255,255,.3); box-shadow: 0 8px 28px rgba(0,0,0,.16); }
+  .voice:hover { background: rgba(70,60,55,.65); }
   .mic-wrap { display: inline-flex; flex: none; }
   .mic { width: 68px; height: 68px; display: grid; place-items: center; border: 0; border-radius: 50%;
     background: rgb(250,240,228); color: rgb(150,96,60); box-shadow: 0 0 24px rgba(255,200,150,.45);
@@ -87,15 +91,16 @@
 <body>
 <div class="app">
   <div class="info"><div class="date" id="date"></div><div class="greeting" id="greeting"></div></div>
+  <button class="voice" id="voice" aria-pressed="false">声音开启</button>
   <div class="chat" id="chat"></div>
   <div class="chips hidden" id="chips"></div>
   <div class="bar">
     <div class="composer">
-      <textarea id="input" rows="1" aria-label="输入消息" placeholder="想说什么，打字或按住麦克风…" disabled></textarea>
+      <textarea id="input" rows="1" aria-label="输入消息" placeholder="想说什么，在这里打字…" disabled></textarea>
       <button class="send" id="send" aria-label="发送" disabled>发送</button>
     </div>
-    <span class="mic-wrap" title="语音功能还在开发中，暂时只能打字">
-      <button class="mic" disabled aria-disabled="true" aria-label="语音功能还在开发中，暂时只能打字">
+    <span class="mic-wrap" title="麦克风暂未开放，请打字聊天">
+      <button class="mic" disabled aria-disabled="true" aria-label="麦克风暂未开放，请打字聊天">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
           <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3M8 22h8"/>
         </svg>
@@ -112,6 +117,98 @@ const chips = document.getElementById('chips');
 const wake = document.getElementById('wake');
 const history = [];   // {role, content}
 let busy = false;
+
+
+// Sentence pipeline: reveal each sentence when its audio starts; one synthesis at a time,
+// playback in order, with synthesis of the next sentence overlapping playback.
+const voice = document.getElementById('voice');
+let muted = false;
+try { muted = localStorage.getItem('xiaoli-muted') === 'true'; } catch(e) {}
+let audioContext, activeSource, audioEpoch = 0;
+let flushSubtitle = null;
+let synthChain = Promise.resolve(), playChain = Promise.resolve();
+function voiceLabel() {
+  voice.textContent = muted ? '声音关闭' : '声音开启';
+  voice.setAttribute('aria-pressed', String(muted));
+  voice.setAttribute('aria-label', muted ? '开启声音' : '关闭声音');
+  voice.title = muted ? '点击开启回复朗读' : '点击关闭回复朗读；浏览器首次播放需点击页面';
+}
+voiceLabel();
+function stopAudio() {
+  if (flushSubtitle) { flushSubtitle(); flushSubtitle = null; }
+  audioEpoch++;
+  if (activeSource) { try { activeSource.stop(); } catch(e) {} activeSource = null; }
+}
+function unlockAudio() {
+  if (!audioContext) audioContext = new AudioContext();
+  if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+}
+voice.onclick = () => {
+  muted = !muted;
+  try { localStorage.setItem('xiaoli-muted', String(muted)); } catch(e) {}
+  stopAudio(); voiceLabel();
+  if (!muted) unlockAudio();
+};
+document.addEventListener('pointerdown', () => { if (!muted) unlockAudio(); });
+document.addEventListener('keydown', () => { if (!muted) unlockAudio(); });
+function spoken(t) {
+  return t.replace(/```[\s\S]*?```/g, ' ').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]*>|https?:\/\/\S+/g, '')
+    .replace(/[^\p{L}\p{N}\s。，！？!?；;：:、,.…（）()'\-]/gu, '').trim();
+}
+function queueSentence(text, reveal = () => {}) {
+  text = spoken(text);
+  if (muted || !audioContext || audioContext.state !== 'running') { reveal(); return; }
+  if (!/[\p{L}\p{N}]/u.test(text)) { playChain = playChain.then(reveal); return; }
+  const epoch = audioEpoch, completed = performance.now();
+  const generated = synthChain.then(async () => {
+    if (epoch !== audioEpoch || muted) return null;
+    try {
+      const res = await fetch('/api/tts', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text}), signal: AbortSignal.timeout(35000)});
+      if (!res.ok || res.status === 204) return null;
+      const wav = await res.arrayBuffer();
+      if (epoch !== audioEpoch || muted) return null;
+      if (!audioContext || audioContext.state !== 'running') return null;
+      return await audioContext.decodeAudioData(wav);
+    } catch(e) { console.info('TTS silent fallback', String(e)); return null; }
+  });
+  synthChain = generated.then(() => {});
+  playChain = playChain.then(async () => {
+    const buffer = await generated;
+    reveal();
+    if (!buffer || muted || epoch !== audioEpoch) return;
+    await new Promise(resolve => {
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer; source.connect(audioContext.destination); activeSource = source;
+      source.onended = () => { if (activeSource === source) activeSource = null; resolve(); };
+      console.info('TTS_PLAY', JSON.stringify({text, delay_ms:performance.now()-completed, duration:buffer.duration}));
+      source.start();
+    });
+  }).catch(e => console.info('TTS playback fallback', String(e)));
+}
+function sentenceStream(onSentence = () => {}) {
+  let consumed = 0;
+  return (text, final = false) => {
+    let rest = text.slice(consumed);
+    while (rest.length) {
+      let n = rest.search(/[。！？!?；;…\n]/u);
+      n = n >= 0 ? n + 1 : 0;
+      // Avoid very long utterances: comma after 24 chars, hard cap 72 chars.
+      if (!n || n > 72) {
+        const comma = rest.slice(24,72).search(/[，,、：:]/u);
+        n = comma >= 0 ? 25 + comma : (rest.length >= 72 ? 72 : 0);
+      }
+      if (!n && final) n = rest.length;
+      if (!n) break;
+      const sentence = rest.slice(0,n);
+      consumed += n;
+      const prefix = text.slice(0,consumed);
+      queueSentence(sentence, () => onSentence(prefix));
+      rest = rest.slice(n);
+    }
+  };
+}
 
 // Keep the app alive while this window is open.
 try { new EventSource('/api/alive'); } catch (e) {}
@@ -205,6 +302,8 @@ function showChips() {
 async function ask() {
   const text = input.value.trim();
   if (!text || busy) return;
+  stopAudio();
+  if (!muted) unlockAudio();
   chips.classList.add('hidden');
   input.value = ''; autosize();
   addBubble('me', text);
@@ -212,6 +311,13 @@ async function ask() {
   setBusy(true);
   const bubble = typingBubble();
   let raw = '';
+  let revealed = 0;
+  const reveal = text => {
+    if (text.length < revealed) return;
+    revealed = text.length; bubble.textContent = text; chat.scrollTop = chat.scrollHeight;
+  };
+  flushSubtitle = () => reveal(tidy(raw));
+  const speak = sentenceStream(reveal);
   try {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -237,16 +343,20 @@ async function ask() {
           if (piece) {
             raw += piece;
             const shown = tidy(raw);
-            if (shown) { bubble.textContent = shown; chat.scrollTop = chat.scrollHeight; }
+            if (shown) {
+              if (muted || !audioContext || audioContext.state !== 'running') reveal(shown);
+              speak(shown);
+            }
           }
         } catch (e) {}
       }
     }
     const final = tidy(raw).trim();
     if (!final) throw new Error('empty');
-    bubble.textContent = final;
+    speak(final, true);
     history.push({ role: 'assistant', content: final });
   } catch (e) {
+    stopAudio();
     bubble.textContent = '哎呀，我刚才走神了，没听清。你能再说一遍吗？';
     history.pop();
   }
@@ -277,6 +387,7 @@ async function waitForBrain() {
   wake.classList.add('hidden');
   const hello = greetingWord() + '呀！我是小离～\n有什么想问的、想聊的，直接在下面打字告诉我就好。不知道说什么的话，点点下面的小卡片也行。';
   const b = addBubble('her', '');
+  if (audioContext && audioContext.state === 'running') sentenceStream()(hello, true);
   await typeOut(b, hello);
   history.push({ role: 'assistant', content: hello });
   showChips();

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -207,7 +208,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	msg, _ := failMsg.Load().(string)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"ready": ready.Load(), "failed": failed.Load(), "message": msg})
+	json.NewEncoder(w).Encode(map[string]any{"ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load()})
 }
 
 // /api/alive is a long-lived event stream; while at least one window holds it open we stay running.
@@ -283,12 +284,22 @@ func main() {
 		return
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Reuse the UI origin across launches so localStorage mute preferences persist.
+	previousPort, _ := os.ReadFile(filepath.Join(dataDir, "ui-port.txt"))
+	port, _ := strconv.Atoi(strings.TrimSpace(string(previousPort)))
+	if port < 1024 || port > 65535 {
+		port = 0
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		showError("小离打不开窗口：" + err.Error())
 		return
 	}
 	uiPort := ln.Addr().(*net.TCPAddr).Port
+	os.WriteFile(filepath.Join(dataDir, "ui-port.txt"), []byte(fmt.Sprint(uiPort)), 0o644)
 	os.WriteFile(filepath.Join(dataDir, "port.txt"), []byte(fmt.Sprint(uiPort)), 0o644)
 
 	cmd, err := startBrain()
@@ -299,10 +310,13 @@ func main() {
 		go waitReady(cmd)
 	}
 
+	go startTTS()
+
 	sub, _ := fs.Sub(webFS, "web")
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("/api/chat", handleChat)
+	mux.HandleFunc("/api/tts", handleTTS)
 	mux.HandleFunc("/api/status", handleStatus)
 	mux.HandleFunc("/api/alive", handleAlive)
 	srv := &http.Server{Handler: mux}
@@ -320,6 +334,11 @@ func main() {
 	cancel()
 	if cmd != nil && cmd.Process != nil {
 		cmd.Process.Kill()
+	}
+	close(ttsStop)
+	select {
+	case <-ttsDone:
+	case <-time.After(2 * time.Second):
 	}
 	os.Remove(filepath.Join(dataDir, "port.txt"))
 }

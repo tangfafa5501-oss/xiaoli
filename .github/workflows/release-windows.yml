@@ -5,7 +5,7 @@ on:
     inputs:
       tag:
         description: Release tag
-        default: v0.2
+        default: v0.3
       publish:
         description: Upload the final zip and publish the release (false = build + smoke test only)
         type: boolean
@@ -38,20 +38,57 @@ jobs:
       - name: Download base zip from the release
         run: gh release download "${{ inputs.tag }}" -p "$BASE_ASSET" -D build --clobber
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: launcher/go.mod
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build launcher from checked-out source
+        run: |
+          cd launcher
+          go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsgui -s -w" -o ../build/小离.exe .
+
+      - name: Download and verify CPU TTS assets
+        run: python .github/release/prepare_tts.py build/tts-cache build/tts-stage
+
+      - name: Compile persistent TTS worker (MSVC static runtime)
+        shell: cmd
+        run: cl /nologo /O2 /MT /utf-8 /I tts tts\worker.c /Fe:build\tts-stage\runtime\tts\xiaoli-tts.exe /link /LIBPATH:build\tts-cache\sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib\lib sherpa-onnx-c-api.lib
+
       - name: Download model
         run: curl -fL --retry 5 --retry-delay 5 -o build/model.gguf "$MODEL_URL"
 
       - name: Assemble final zip
-        run: python .github/release/assemble.py "build/$BASE_ASSET" build/model.gguf "$MODEL_SHA256" "build/$FINAL_ASSET"
+        run: python .github/release/assemble.py "build/$BASE_ASSET" build/model.gguf "$MODEL_SHA256" "build/$FINAL_ASSET" build/tts-stage build/小离.exe
 
       - name: Size and checksum
         run: |
           ls -l "build/$FINAL_ASSET"
           sha256sum "build/$FINAL_ASSET" | tee build/sha256.txt
+          stat -c %s "build/$FINAL_ASSET" > build/size-bytes.txt
           echo "**$FINAL_ASSET** $(stat -c %s build/$FINAL_ASSET) bytes, sha256 \`$(cut -d' ' -f1 build/sha256.txt)\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Real-Windows smoke test
-        run: python .github/release/smoke_test.py "build/$FINAL_ASSET" "$RUNNER_TEMP/smoke"
+        run: |
+          pip install psutil==7.0.0
+          python .github/release/smoke_test.py "build/$FINAL_ASSET" "$RUNNER_TEMP/smoke"
+
+      - name: Keep local-build checks and smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-v0.3-validation
+          path: |
+            build/sha256.txt
+            build/size-bytes.txt
+            build/tts-stage/TTS-ASSETS-SHA256.json
+            ${{ runner.temp }}/smoke/metrics.json
+            ${{ runner.temp }}/smoke/tts-test.wav
+            ${{ runner.temp }}/smoke/*.log
 
       - name: Upload to release and publish
         if: ${{ inputs.publish }}
