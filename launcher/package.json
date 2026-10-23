@@ -1,0 +1,14 @@
+{
+  "name": "xiaoli-chat-motion-integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build:web": "node scripts/build-motion.mjs",
+    "test": "node --test tests/chat-session.test.mjs tests/assets.test.mjs",
+    "test:browser": "node tests/fixture-server.mjs",
+    "test:http": "node tests/http-smoke.mjs"
+  },
+  "dependencies": { "three": "0.180.0" }
+}

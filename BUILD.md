@@ -1,4 +1,6 @@
 # 小离 MVP v0.2 build notes
+
+- Chat + motion integration branch: see [docs/CHAT_MOTION_INTEGRATION.md](docs/CHAT_MOTION_INTEGRATION.md). Offline motion assets are committed under `launcher/web/motion/` and embedded by the existing Go build. Rebuild those assets with `cd launcher && npm ci --ignore-scripts && npm run build:web`; run `npm test` for JS lifecycle tests and `go test ./...` for the embedded asset/proxy tests. These do not replace real-model or Windows acceptance tests.
 - launcher/: Go launcher (UI embedded via go:embed, persona.txt default). Build: cd launcher && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsgui -s -w" -o ../xiaoli.exe .
 - Icon/manifest: ~/go/bin/go-winres simply --icon ../icon.png --manifest gui (rsrc_windows_amd64.syso)
 - stage/小离 = package layout; dist/XiaoLi-v0.2-Windows-x64.zip = output

@@ -1,0 +1,32 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>小离聊天动作浏览器验收（模拟后端）</title><style>body{font:14px system-ui;background:#eee;margin:24px;color:#333}button{padding:12px;margin-right:12px}iframe{display:block;width:1024px;height:640px;border:0;margin-top:18px}pre{white-space:pre-wrap}a{color:#604a70}</style><h1>小离聊天 × 3D：浏览器验收</h1><p>这里加载实际 launcher/web/index.html。仅后端 SSE 为测试夹具，不代表真实模型对话；不会联系外部服务。</p><button id="run">运行浏览器检查</button><a href="/" target="_blank">打开实际界面（模拟接口）</a><pre id="result">等待运行。请保持本页可见。</pre><iframe id="app" title="小离实际聊天界面" src="/"></iframe>
+<script type="module">
+const frame=document.getElementById('app'),result=document.getElementById('result'),run=document.getElementById('run');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(fn,label,timeout=9000){const start=performance.now();while(performance.now()-start<timeout){if(fn())return;await sleep(30);}throw Error('Timeout: '+label);}
+const doc=()=>frame.contentDocument,app=()=>doc().querySelector('.app'),state=()=>app().dataset.motionState;
+const config=(scenario='normal',assetFail=false)=>fetch('/__test/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario,assetFail})});
+async function load(){await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Frame load timeout')),9000);frame.onload=()=>{clearTimeout(timer);resolve();};frame.src='/?qa='+Date.now();});await until(()=>doc()?.querySelector('#send')&&!doc().querySelector('#send').disabled,'chat ready');}
+function send(text){const input=doc().getElementById('input');input.value=text;input.dispatchEvent(new frame.contentWindow.Event('input',{bubbles:true}));doc().getElementById('send').click();}
+const stats=async()=>await(await fetch('/__test/stats')).json();
+run.onclick=async()=>{
+ run.disabled=true;const checks=[],states=[],errors=[];result.textContent='运行中…';
+ const pass=name=>{checks.push({name,passed:true});result.textContent=checks.map(x=>'通过：'+x.name).join('\n');};
+ try {
+  await config();await load();const d=doc();d.defaultView.addEventListener('error',e=>errors.push(e.message));d.defaultView.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
+  await until(()=>app().dataset.avatar==='ready','WebGL avatar ready');if(!d.querySelector('canvas'))throw Error('Missing 3D canvas');pass('实际小离界面、WebGL 人偶与聊天输入均加载');
+  const observer=new MutationObserver(()=>states.push(state()));observer.observe(app(),{attributes:true,attributeFilter:['data-motion-state']});
+  send('请验证聊天与动作衔接');await until(()=>state()==='thinking','thinking');await until(()=>state()==='expressing','expressing');await until(()=>state()==='idle'&&!d.querySelector('#send').disabled,'idle after response');
+  if(!d.querySelector('.msg.her:last-child').textContent.includes('模拟接口'))throw Error('No streamed reply');pass('发送→思考→流式文本/表达→待机');
+  await config('slow');const before=(await stats()).count;send('取消测试');await until(()=>state()==='thinking','cancel thinking');
+  const input=d.querySelector('#input');input.value='不应重复发送';input.dispatchEvent(new frame.contentWindow.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await sleep(120);if((await stats()).count!==before+1)throw Error('Duplicate request');pass('重复发送不增加请求');
+  d.querySelector('#cancel').click();await until(()=>state()==='idle'&&!d.querySelector('#send').disabled,'cancel idle');pass('停止按钮中断并恢复输入');
+  await config();send('取消后重新发送');await until(()=>state()==='idle'&&!d.querySelector('#send').disabled,'new request completes');pass('中断后下一轮正常完成');
+  for(const scenario of ['error','empty','truncated']){await config(scenario);send('错误恢复 '+scenario);await until(()=>state()==='idle'&&!d.querySelector('#send').disabled,'error recovery');if(!d.querySelector('.msg.her:last-child').textContent.includes('走神'))throw Error('Missing error feedback');pass(scenario+' 错误回待机');}
+  await config('slow');send('离开页面测试');await until(()=>state()==='thinking','pagehide thinking');frame.contentWindow.dispatchEvent(new frame.contentWindow.PageTransitionEvent('pagehide'));frame.contentWindow.dispatchEvent(new frame.contentWindow.PageTransitionEvent('pageshow'));await until(()=>state()==='idle','page lifecycle idle');pass('pagehide/pageshow 事件取消和恢复（事件级模拟）');
+  observer.disconnect();await config('normal',true);await load();await until(()=>app().dataset.avatar==='unavailable','renderer fallback');send('3D 不可用仍能聊天');await until(()=>state()==='idle'&&!doc().querySelector('#send').disabled,'fallback reply');if(!doc().querySelector('.msg.her:last-child').textContent.includes('模拟接口'))throw Error('Fallback chat failed');pass('3D 模块加载失败仍完成聊天');
+  if(errors.length)throw Error(errors.join('; '));pass('正常界面无未处理脚本错误');
+ } catch(e){checks.push({name:e.message,passed:false});}
+ const report={environment:'Chrome on Mac; real launcher UI with local SSE fixture',realModel:false,windowsTested:false,viewport:{width:1024,height:640},checks,observedStates:states,unhandledErrors:errors,passed:checks.every(x=>x.passed)};
+ result.textContent=JSON.stringify(report,null,2);await fetch('/__test/evidence?name=browser-validation.json',{method:'POST',body:JSON.stringify(report,null,2)});await config();run.disabled=false;
+};
+</script></html>

@@ -1,0 +1,36 @@
+{
+  "threeVersion": "0.180.0",
+  "source": "experiments/companion-motion",
+  "files": [
+    {
+      "path": "motion.mjs",
+      "bytes": 5698,
+      "sha256": "e36e790a0aefb13712261c2f47864985edec219ddfd0e77373e55537a74b52f4"
+    },
+    {
+      "path": "rig.mjs",
+      "bytes": 7541,
+      "sha256": "595fb2cef1ee087eda2acc848f985ac1d360710704365336711005924b83fde7"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1096,
+      "sha256": "30a7b57cccc8bec6b54494e5b5c387f1d24356a71b21542e376ac61b3569993e"
+    },
+    {
+      "path": "vendor/three.module.min.js",
+      "bytes": 338908,
+      "sha256": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6"
+    },
+    {
+      "path": "vendor/three.core.min.js",
+      "bytes": 381124,
+      "sha256": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de"
+    },
+    {
+      "path": "vendor/LICENSE",
+      "bytes": 1081,
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+    }
+  ]
+}
