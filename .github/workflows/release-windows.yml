@@ -59,6 +59,16 @@ jobs:
         shell: cmd
         run: cl /nologo /O2 /MT /utf-8 /I tts tts\worker.c /Fe:build\tts-stage\runtime\tts\xiaoli-tts.exe /link /LIBPATH:build\tts-cache\sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib\lib sherpa-onnx-c-api.lib
 
+      - name: Keep Windows TTS stage and launcher for local test packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-v0.3-test-no-gguf-stage
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            build/tts-stage/
+            build/小离.exe
+
       - name: Download model
         run: curl -fL --retry 5 --retry-delay 5 -o build/model.gguf "$MODEL_URL"
 
