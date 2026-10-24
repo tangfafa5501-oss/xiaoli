@@ -3,6 +3,7 @@ No microphone or physical speaker assertion; WAV endpoint audio is validated."""
 import array, io, json, math, os, pathlib, re, subprocess, sys, threading, time
 import urllib.request, wave, zipfile
 import psutil
+from playwright.sync_api import sync_playwright
 
 zip_path, work = sys.argv[1:3]
 work = pathlib.Path(work)
@@ -61,6 +62,7 @@ def test_tts(base, text, filename):
     start = time.perf_counter()
     with post(base+'/api/tts', {'text': text}) as response:
         assert response.headers.get_content_type() == 'audio/wav'
+        server_timing = response.headers.get('Server-Timing')
         first = response.read(1)
         ttfb = time.perf_counter()-start
         audio = first + response.read()
@@ -74,7 +76,7 @@ def test_tts(base, text, filename):
     rms = math.sqrt(sum(v*v for v in samples)/len(samples))
     assert rms > 10 and max(abs(v) for v in samples) > 100, f'silent WAV: {rms}'
     return {'text':text, 'time_to_first_audio_byte_s':ttfb, 'wav_complete_s':elapsed,
-            'audio_duration_s':frames/sr, 'sample_rate':sr, 'rms_pcm16':rms,
+            'server_timing':server_timing, 'audio_duration_s':frames/sr, 'sample_rate':sr, 'rms_pcm16':rms,
             'meaning':'sentence WAV endpoint; excludes sound-card/browser playback'}
 
 try:
@@ -90,19 +92,23 @@ try:
     assert 'id="voice"' in html and '小离' in html
     wait_ready(base)
     metrics['tts'] = [test_tts(base, '早上好！今天天气不错。我在呢，有什么事直接跟我说，我帮你搞定。', 'tts-test.wav')]
+    metrics['warm_short_clauses'] = [test_tts(base, text, f'short-{i}.wav') for i,text in enumerate(['早上好！', '今天有什么需要帮忙？']*3)]
     # Run chat while another sentence synthesizes; aggregate RSS includes both workloads.
     concurrent = []
     def during_chat():
-        try: concurrent.append(test_tts(base,'我在呢，有什么事直接跟我说，我帮你搞定。','tts-concurrent.wav'))
+        try: concurrent.append(test_tts(base,'今天有什么需要帮忙？','tts-concurrent.wav'))
         except Exception as e: concurrent.append(e)
-    t = threading.Thread(target=during_chat); t.start()
+    t = threading.Thread(target=during_chat)
     reply = ''
     with post(base+'/api/chat', {'messages':[{'role':'user','content':'你好，你是谁？请用两句话回答。'}]}) as response:
         for raw in response:
             line = raw.decode().strip()
             if line.startswith('data:') and line[5:].strip() != '[DONE]':
                 obj = json.loads(line[5:])
-                reply += obj['choices'][0]['delta'].get('content') or ''
+                delta = obj['choices'][0]['delta'].get('content') or ''
+                if delta and not t.ident: t.start()
+                reply += delta
+    assert t.ident, 'no chat tokens to trigger concurrent TTS'
     t.join(120)
     assert not t.is_alive(), 'concurrent TTS hung'
     assert concurrent and isinstance(concurrent[0],dict), concurrent
@@ -110,6 +116,39 @@ try:
     assert reply.strip() and re.search('[\u4e00-\u9fff]',reply), reply
     assert '<think' not in reply.lower(), reply
     metrics['chat_reply'] = reply
+    # Real headless WebAudio start, not an HTTP-byte surrogate. No physical speaker.
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
+        page = browser.new_page(viewport={'width':1024,'height':640})
+        errors = []
+        page.on('pageerror', lambda e: errors.append(str(e)))
+        page.goto(base)
+        assert page.title() == '小离'
+        page.wait_for_function('!document.querySelector("#send").disabled')
+        page.click('#voice'); page.click('#voice')  # unlock and clear greeting
+        page.evaluate('playChain')
+        page.evaluate("""() => {
+          window.latencyPlays = [];
+          const info = console.info;
+          console.info = (...args) => {
+            if (args[0] === 'TTS_PLAY') window.latencyPlays.push(JSON.parse(args[1]));
+            info(...args);
+          };
+        }""")
+        page.fill('#input', '请只回复：早上好！今天有什么需要帮忙？')
+        page.press('#input', 'Enter')
+        page.wait_for_function('window.latencyPlays.length > 0', timeout=120000)
+        metrics['browser_first_play'] = page.evaluate('window.latencyPlays[0]')
+        page.wait_for_function('!document.querySelector("#send").disabled', timeout=120000)
+        page.evaluate('playChain')
+        metrics['browser_plays'] = page.evaluate('window.latencyPlays')
+        metrics['browser_errors'] = errors
+        assert not errors, errors
+        page.screenshot(path=str(work/'browser-chat.png'))
+        browser.close()
+    metrics['warm_short_target_1s_met'] = all(x['wav_complete_s'] <= 1.0 for x in metrics['warm_short_clauses'])
+    metrics['concurrent_short_target_1s_met'] = concurrent[0]['wav_complete_s'] <= 1.0
+
     assert 'llama-server.exe' in known.values() and 'xiaoli-tts.exe' in known.values(), known
     # Killing the launcher must close BOTH Windows job handles.
     launcher.kill(); launcher.wait()
@@ -126,6 +165,10 @@ finally:
         try: psutil.Process(pid).kill()
         except psutil.Error: pass
     metrics.setdefault('passed',False)
+    tts_log = data_dir/'tts.log'
+    if tts_log.exists():
+        log_text = tts_log.read_text(encoding='utf-8',errors='replace')
+        metrics['worker_timings'] = [dict(re.findall(r'(\w+)=([\d.]+)', line)) for line in log_text.splitlines() if line.startswith('TTS ')]
     (work/'metrics.json').write_text(json.dumps(metrics,ensure_ascii=False,indent=2),encoding='utf-8')
     for filename in ['launcher.log','tts.log','brain.log']:
         source = data_dir/filename

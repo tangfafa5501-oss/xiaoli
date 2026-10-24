@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,7 +72,18 @@ func startBrain() (*exec.Cmd, error) {
 		return nil, fmt.Errorf("找不到小离的“大脑”文件（runtime\\model.gguf）。请把压缩包完整解压后再打开。")
 	}
 	brainPort = freePort()
+	// Reserve CPU capacity for the two-thread TTS session during generation.
+	threads := runtime.NumCPU() - 2
+	if threads < 1 {
+		threads = 1
+	}
+	if threads > 6 {
+		threads = 6
+	}
+	log.Printf("CPU budget: logical=%d llama=%d TTS=2", runtime.NumCPU(), threads)
 	args := []string{
+		"--threads", fmt.Sprint(threads),
+		"--threads-batch", fmt.Sprint(threads),
 		"-m", model,
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprint(brainPort),

@@ -126,6 +126,7 @@ let muted = false;
 try { muted = localStorage.getItem('xiaoli-muted') === 'true'; } catch(e) {}
 let audioContext, activeSource, audioEpoch = 0;
 let flushSubtitle = null;
+let lastSendAt = null;
 let synthChain = Promise.resolve(), playChain = Promise.resolve();
 function voiceLabel() {
   voice.textContent = muted ? '声音关闭' : '声音开启';
@@ -182,7 +183,7 @@ function queueSentence(text, reveal = () => {}) {
       const source = audioContext.createBufferSource();
       source.buffer = buffer; source.connect(audioContext.destination); activeSource = source;
       source.onended = () => { if (activeSource === source) activeSource = null; resolve(); };
-      console.info('TTS_PLAY', JSON.stringify({text, delay_ms:performance.now()-completed, duration:buffer.duration}));
+      console.info('TTS_PLAY', JSON.stringify({text, delay_ms:performance.now()-completed, duration:buffer.duration, send_to_play_ms:lastSendAt === null ? null : performance.now()-lastSendAt, output_latency_ms:1000*(audioContext.outputLatency || audioContext.baseLatency || 0)}));
       source.start();
     });
   }).catch(e => console.info('TTS playback fallback', String(e)));
@@ -194,6 +195,13 @@ function sentenceStream(onSentence = () => {}) {
     while (rest.length) {
       let n = rest.search(/[。！？!?；;…\n]/u);
       n = n >= 0 ? n + 1 : 0;
+      // Start speaking at the first natural clause, with a 12-character cap.
+      // Later chunks retain longer phrasing and synthesize during playback.
+      if (consumed === 0) {
+        const clause = rest.search(/[，,、：:]/u);
+        if (clause >= 0 && (!n || clause + 1 < n)) n = clause + 1;
+        if ((!n || n > 12) && rest.length >= 12) n = 12;
+      }
       // Avoid very long utterances: comma after 24 chars, hard cap 72 chars.
       if (!n || n > 72) {
         const comma = rest.slice(24,72).search(/[，,、：:]/u);
@@ -317,6 +325,7 @@ async function ask() {
     revealed = text.length; bubble.textContent = text; chat.scrollTop = chat.scrollHeight;
   };
   flushSubtitle = () => reveal(tidy(raw));
+  lastSendAt = performance.now();
   const speak = sentenceStream(reveal);
   try {
     const res = await fetch('/api/chat', {
