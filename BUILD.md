@@ -59,3 +59,26 @@ UI 默认声音开启，欢迎语默认文字；首次实际播放依赖点击/�
 5. fafa 批准正式发布后，再以同一 tag 和同一提交运行 `publish=true`。再次构建和测试成功后上传完整 zip、删除 base asset、公开 draft。仅 `publish=false` 不上传 release 资产、不公开 draft；完整 zip 保留在 runner 作测试，本流程不把它作为 Actions artifact（较大）。
 
 Smoke 每 100 ms 对启动器进程树中的 小离.exe、llama-server.exe、xiaoli-tts.exe 采样 RSS，记录同时刻合计峰值和各进程峰值（不含 Edge）。TTS 首音频是 WAV endpoint 首字节时间，不是实体声卡播放延迟。失败使 job 失败；无论成功与否保存 metrics 和日志。Windows 实机、声音设备和主观音质仍需人工确认。
+
+
+## v0.4 本地离线输入增量
+
+另编译 `tts/asr_worker.c` 为 `runtime/tts/xiaoli-asr.exe`（Linux 为 `xiaoli-asr`），与 TTS 共用同目录 sherpa 1.13.8 DLL。
+Windows 编译命令与 TTS 相同，只替换源码为 `tts/asr_worker.c`、输出为 `xiaoli-asr.exe`。
+Linux 同理替换源码与输出文件名，保留 `-Wl,-rpath,$ORIGIN`，DLL/so 不重复打包。
+
+`prepare_tts.py` 同时下载校验 SenseVoiceSmall int8 (2024-07-17) 和 Silero；模型、tokens、VAD、LICENSE、内置测试 WAV 放 `models/asr/`。
+ASR worker 独立常驻，cwd 为 `models/asr`；输入为 LE uint32 样本数 + 16kHz 单声道 float32，零样本表示重置；输出 READY 握手后为 LE uint32 长度 + JSON。
+Go `/api/asr` 的 start/chunk/cancel 会话互斥、同源限制、输入长度限制和超时保护独立于 TTS。
+每块 1024 样本（64ms）；Silero 512 窗、0.32s 静音、0.16s 最短语音、30s 总时限，ASR CPU 4 线程。
+
+麦克风点击开始/再次点击取消；开始时打断小离语音及正在生成的旧回复。
+右键麦克风（键盘 Shift+F10）打开“说完自动发送”设置，默认勾选；取消后只填入。
+设置保存到 `xiaoli-asr-auto-send` localStorage；端口复用及其限制沿用 v0.3。
+浏览器要求 AudioWorklet、getUserMedia 和 16kHz AudioContext（当前 Windows Edge/Chrome）。
+模型缺失、进程崩溃和权限/设备错误只禁用麦克风，重新打开页面可重新请求权限。
+
+Windows smoke 将包内 `models/asr/asr-test.wav` 通过真实 `/api/asr` 喂入 Silero + SenseVoice，断言识别到“天气/怎么样”，不要求实体麦克风。
+内置 WAV 为 MIT Melo 模型合成并重采样的测试语音。进程采样包含 `xiaoli-asr.exe`，退出时检查全部子进程回收。
+当前 workflow 默认 tag 为 v0.4；仍只允许经 fafa 批准后推送和手动运行。
+SenseVoice 权重采用 FunASR MODEL_LICENSE v1.1；商用说明及待澄清细节见 THIRD_PARTY_NOTICES。

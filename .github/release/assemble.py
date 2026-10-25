@@ -40,6 +40,6 @@ with zipfile.ZipFile(out) as z:
     print("entries:", len(infos))
     bad = [i.filename for i in infos if not i.filename.isascii() and not (i.flag_bits & 0x800)]
     assert not bad, bad
-    for n in ["小离/小离.exe", "小离/使用说明.txt", "小离/runtime/llama-server.exe", target, "小离/models/tts/LICENSE", "小离/models/tts/README.md", "小离/runtime/tts/xiaoli-tts.exe", "小离/THIRD_PARTY_NOTICES.txt"]:
+    for n in ["小离/小离.exe", "小离/使用说明.txt", "小离/runtime/llama-server.exe", target, "小离/models/tts/LICENSE", "小离/models/tts/README.md", "小离/runtime/tts/xiaoli-tts.exe", "小离/THIRD_PARTY_NOTICES.txt", "小离/models/asr/model.int8.onnx", "小离/models/asr/tokens.txt", "小离/models/asr/silero_vad.onnx", "小离/models/asr/asr-test.wav", "小离/models/asr/LICENSE", "小离/runtime/tts/xiaoli-asr.exe", "小离/runtime/tts/licenses/LICENSE-SenseVoice", "小离/runtime/tts/licenses/LICENSE-Silero"]:
         assert n in z.namelist(), n
 print("assembled", out)

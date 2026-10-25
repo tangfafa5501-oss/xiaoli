@@ -220,7 +220,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	msg, _ := failMsg.Load().(string)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load()})
+	json.NewEncoder(w).Encode(map[string]any{"ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load(), "asr_ready": asrReady.Load(), "asr_finished": asrFinished.Load()})
 }
 
 // /api/alive is a long-lived event stream; while at least one window holds it open we stay running.
@@ -323,12 +323,14 @@ func main() {
 	}
 
 	go startTTS()
+	go startASR()
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("/api/chat", handleChat)
 	mux.HandleFunc("/api/tts", handleTTS)
+	mux.HandleFunc("/api/asr", handleASR)
 	mux.HandleFunc("/api/status", handleStatus)
 	mux.HandleFunc("/api/alive", handleAlive)
 	srv := &http.Server{Handler: mux}
@@ -346,6 +348,11 @@ func main() {
 	cancel()
 	if cmd != nil && cmd.Process != nil {
 		cmd.Process.Kill()
+	}
+	close(asrStop)
+	select {
+	case <-asrDone:
+	case <-time.After(2 * time.Second):
 	}
 	close(ttsStop)
 	select {

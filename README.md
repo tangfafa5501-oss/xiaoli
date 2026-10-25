@@ -1,4 +1,4 @@
-# 小离 v0.3
+# 小离 v0.4（本地开发版，尚未发布）
 
 一个住在你电脑里的 AI 小帮手。聊天和回复朗读完全离线，不用登录、不用联网、不用设置，只用 CPU。
 
@@ -15,7 +15,7 @@
 - 离线中文女声：Melo Chinese+English（sherpa-onnx，sid=0，MIT），支持中英混读。
 - 模型随完整包提供，启动时预加载；回复流到一句就开始合成，下一句合成与上一句播放重叠，按原顺序播放。
 - 有声时逐句显示字幕，静音、浏览器播放受限或语音不可用时直接显示文字。读音中移除 emoji、常见 Markdown 标记和「～」。
-- 右上角玻璃风格声音开关，设置保存在本机浏览器 localStorage；麦克风仍不可用。
+- 右上角玻璃风格声音开关，设置保存在本机浏览器 localStorage。
 - 语音组件缺失、启动失败或崩溃时，仍能正常打字聊天。新提问会停止上一条回复的语音；静音会立即停止并丢弃待播语音，重新开启后只朗读新句子。
 - 构建流程自动校验 TTS 下载 SHA256，随包保留模型许可证、README 和第三方组件说明。
 
@@ -42,3 +42,12 @@
 - 模型：[Qwen3-1.7B Q4_K_M](https://huggingface.co/unsloth/Qwen3-1.7B-GGUF)（Apache-2.0）
 - 语音：[sherpa-onnx 1.13.8](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.8) CPU + [Melo 转换包](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models)；原始模型可见 [ModelScope](https://modelscope.cn/models/myshell-ai/MeloTTS-Chinese)。未核实到同格式的 ModelScope 转换包镜像，构建时使用 GitHub 官方包，运行时不下载。
 - 第三方说明见 `THIRD_PARTY_NOTICES.txt`；完整包保留 `models/tts/LICENSE`、`models/tts/README.md` 和 `runtime/tts/licenses/`。
+
+
+## v0.4 语音输入（本地开发，未发布）
+
+点击麦克风说话，停顿后自动识别并发送；再次点击取消。开麦会先停掉小离的朗读与旧回复。
+右键麦克风或按 Shift+F10 可取消“说完自动发送”，改为只填入输入框；设置保存在本地。
+中文与中英混说通过 SenseVoiceSmall int8 + Silero VAD 完全离线处理，无运行时下载。
+麦克风权限、设备、模型或识别进程不可用时仍可打字聊天、听小离回复。
+v0.4 仅本地分支，尚无下载包；上方下载链接为既有 v0.3。构建方式、许可说明见 BUILD.md 和 THIRD_PARTY_NOTICES.txt。

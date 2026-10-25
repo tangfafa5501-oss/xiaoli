@@ -3,6 +3,7 @@ No microphone or physical speaker assertion; WAV endpoint audio is validated."""
 import array, io, json, math, os, pathlib, re, subprocess, sys, threading, time
 import urllib.request, wave, zipfile
 import psutil
+from asr_smoke import test_builtin
 from playwright.sync_api import sync_playwright
 
 zip_path, work = sys.argv[1:3]
@@ -30,7 +31,7 @@ def monitor():
             for proc in procs:
                 try:
                     name = proc.name()
-                    if name.lower() not in ('小离.exe', 'llama-server.exe', 'xiaoli-tts.exe'): continue
+                    if name.lower() not in ('小离.exe', 'llama-server.exe', 'xiaoli-tts.exe', 'xiaoli-asr.exe'): continue
                     known[proc.pid] = name
                     rss = proc.memory_info().rss / 2**20
                     total += rss
@@ -51,7 +52,7 @@ def wait_ready(base):
             time.sleep(0.25); continue
         assert not status.get('failed'), status
         if status['ready'] and brain_at is None: brain_at = time.perf_counter()-start
-        if status['ready'] and status.get('tts_ready'):
+        if status['ready'] and status.get('tts_ready') and status.get('asr_ready'):
             metrics['brain_ready_s'] = brain_at
             metrics['both_ready_s'] = time.perf_counter()-start
             return
@@ -91,6 +92,7 @@ try:
     html = urllib.request.urlopen(base+'/').read().decode('utf-8')
     assert 'id="voice"' in html and '小离' in html
     wait_ready(base)
+    metrics['asr'] = test_builtin(base, app/'models/asr/asr-test.wav')
     metrics['tts'] = [test_tts(base, '早上好！今天天气不错。我在呢，有什么事直接跟我说，我帮你搞定。', 'tts-test.wav')]
     metrics['warm_short_clauses'] = [test_tts(base, text, f'short-{i}.wav') for i,text in enumerate(['早上好！', '今天有什么需要帮忙？']*3)]
     # Run chat while another sentence synthesizes; aggregate RSS includes both workloads.
@@ -149,8 +151,8 @@ try:
     metrics['warm_short_target_1s_met'] = all(x['wav_complete_s'] <= 1.0 for x in metrics['warm_short_clauses'])
     metrics['concurrent_short_target_1s_met'] = concurrent[0]['wav_complete_s'] <= 1.0
 
-    assert 'llama-server.exe' in known.values() and 'xiaoli-tts.exe' in known.values(), known
-    # Killing the launcher must close BOTH Windows job handles.
+    assert 'llama-server.exe' in known.values() and 'xiaoli-tts.exe' in known.values() and 'xiaoli-asr.exe' in known.values(), known
+    # Killing the launcher must close all Windows child-process job handles.
     launcher.kill(); launcher.wait()
     time.sleep(3)
     survivors = {pid:name for pid,name in list(known.items()) if pid != launcher.pid and psutil.pid_exists(pid)}
@@ -170,11 +172,11 @@ finally:
         log_text = tts_log.read_text(encoding='utf-8',errors='replace')
         metrics['worker_timings'] = [dict(re.findall(r'(\w+)=([\d.]+)', line)) for line in log_text.splitlines() if line.startswith('TTS ')]
     (work/'metrics.json').write_text(json.dumps(metrics,ensure_ascii=False,indent=2),encoding='utf-8')
-    for filename in ['launcher.log','tts.log','brain.log']:
+    for filename in ['launcher.log','tts.log','asr.log','brain.log']:
         source = data_dir/filename
         if source.exists():
             (work/filename).write_bytes(source.read_bytes())
             print(filename,source.read_text(encoding='utf-8',errors='replace')[-4000:])
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
-            f.write('## Windows v0.3 smoke\n```json\n'+json.dumps(metrics,ensure_ascii=False,indent=2)+'\n```\n')
+            f.write('## Windows v0.4 smoke\n```json\n'+json.dumps(metrics,ensure_ascii=False,indent=2)+'\n```\n')

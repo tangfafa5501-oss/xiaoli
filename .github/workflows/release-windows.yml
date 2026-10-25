@@ -5,7 +5,7 @@ on:
     inputs:
       tag:
         description: Release tag
-        default: v0.3
+        default: v0.4
       publish:
         description: Upload the final zip and publish the release (false = build + smoke test only)
         type: boolean
@@ -59,10 +59,14 @@ jobs:
         shell: cmd
         run: cl /nologo /O2 /MT /utf-8 /I tts tts\worker.c /Fe:build\tts-stage\runtime\tts\xiaoli-tts.exe /link /LIBPATH:build\tts-cache\sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib\lib sherpa-onnx-c-api.lib
 
+      - name: Compile persistent ASR worker (shared sherpa runtime)
+        shell: cmd
+        run: cl /nologo /O2 /MT /utf-8 /I tts tts\asr_worker.c /Fe:build\tts-stage\runtime\tts\xiaoli-asr.exe /link /LIBPATH:build\tts-cache\sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib\lib sherpa-onnx-c-api.lib
+
       - name: Keep Windows TTS stage and launcher for local test packages
         uses: actions/upload-artifact@v4
         with:
-          name: windows-v0.3-test-no-gguf-stage
+          name: windows-v0.4-test-no-gguf-stage
           retention-days: 7
           if-no-files-found: error
           path: |
@@ -92,7 +96,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-v0.3-validation
+          name: windows-v0.4-validation
           path: |
             build/sha256.txt
             build/size-bytes.txt

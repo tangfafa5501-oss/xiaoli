@@ -16,7 +16,6 @@ import (
 
 const serverExe = "llama-server.exe"
 
-var jobHandle windows.Handle
 var mutexHandle windows.Handle
 
 func userDataDir() string {
@@ -31,7 +30,8 @@ func hideWindow(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 }
 
-// attachToJob makes Windows kill the brain automatically if this launcher dies for any reason.
+// Each child owns a kill-on-close job handle, deliberately retained until OS process exit.
+// No shared mutable handle: TTS and ASR start concurrently.
 func attachToJob(cmd *exec.Cmd) {
 	j, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -46,11 +46,12 @@ func attachToJob(cmd *exec.Cmd) {
 	}
 	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
 	if err != nil {
+		windows.CloseHandle(j)
 		return
 	}
 	defer windows.CloseHandle(h)
-	if windows.AssignProcessToJobObject(j, h) == nil {
-		jobHandle = j
+	if windows.AssignProcessToJobObject(j, h) != nil {
+		windows.CloseHandle(j)
 	}
 }
 

@@ -3,6 +3,10 @@ import hashlib, json, pathlib, shutil, sys, tarfile, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ASSETS = {
+    "sensevoice-int8.tar.bz2": ("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+        "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"),
+    "silero_vad.onnx": ("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+        "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"),
     'melo.tar.bz2': ('https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-melo-tts-zh_en.tar.bz2',
                      'e58351ed7149f290a54534538badd4077cdbe6fddc964b24d0bee870415d1514'),
     'sherpa-win.tar.bz2': ('https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2',
@@ -26,13 +30,22 @@ def prepare(cache, stage):
             digest = hashlib.file_digest(f, 'sha256').hexdigest()
         if digest != expected: raise ValueError(f'{name}: SHA256 {digest} != {expected}')
         manifest[name] = {'url': url, 'sha256': digest}
-        with tarfile.open(dest) as tar:
-            tar.extractall(cache, filter='data')
+        if name.endswith('.tar.bz2'):
+            with tarfile.open(dest) as tar:
+                tar.extractall(cache, filter='data')
     model = stage / 'models/tts'
     if model.exists(): shutil.rmtree(model)
     shutil.copytree(cache / 'vits-melo-tts-zh_en', model)
     # FP32 chosen in evaluation. No unused int8 duplicate in distribution.
     (model / 'model.int8.onnx').unlink(missing_ok=True)
+    asr = stage / 'models/asr'
+    if asr.exists(): shutil.rmtree(asr)
+    asr.mkdir(parents=True)
+    source = cache / 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
+    for name in ['model.int8.onnx', 'tokens.txt', 'LICENSE', 'README.md']:
+        shutil.copy2(source / name, asr / name)
+    shutil.copy2(cache / 'silero_vad.onnx', asr)
+    shutil.copy2(ROOT / 'tts/testdata/asr-test.wav', asr)
     runtime = stage / 'runtime/tts'
     runtime.mkdir(parents=True, exist_ok=True)
     lib = cache / 'sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib'

@@ -22,5 +22,15 @@
   "LICENSE-jieba": {
     "url": "https://raw.githubusercontent.com/fxsjy/jieba/master/LICENSE",
     "sha256": "18ba0984839f85853b29fadaf992f7dba8fd0ca0fbeae34de2b8735222dc7a37"
+  },
+  "LICENSE-SenseVoice": {
+    "url": "https://raw.githubusercontent.com/modelscope/FunASR/main/MODEL_LICENSE",
+    "sha256": "7dba975a2069691db4992b0592d70828b330d2f8a30a71450f4e152a554e84f8",
+    "retrieved": "2026-10-25"
+  },
+  "LICENSE-Silero": {
+    "url": "https://raw.githubusercontent.com/snakers4/silero-vad/master/LICENSE",
+    "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b",
+    "retrieved": "2026-10-25"
   }
 }

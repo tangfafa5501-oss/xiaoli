@@ -23,3 +23,26 @@
    Windows VC++ runtime DLLs 随原 v0.2 基础包保留。
 
 所有推理和合成在本机 CPU 执行。运行期间不下载模型，不访问云端 TTS。
+
+
+v0.4 offline speech input:
+- SenseVoiceSmall, Alibaba / FunAudioLLM (now QwenAudio), ONNX int8 conversion
+  by k2-fsa/sherpa-onnx. Model name retained: sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.
+  Upstream model card: https://huggingface.co/FunAudioLLM/SenseVoiceSmall
+  Model weights use FunASR Model Open Source License Agreement v1.1,
+  https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE
+  (not the sherpa code's Apache-2.0). Maintainer response #286 permits commercial
+  use subject to attribution and model license terms:
+  https://github.com/QwenAudio/SenseVoice/issues/286
+  Caveat: clarification #334 remains open for license-owner confirmation about
+  Section 3's wording. Its earlier affirmative reply is explicitly not final
+  license-owner confirmation: https://github.com/QwenAudio/SenseVoice/issues/334
+  Preserve the complete terms, author/source attribution, and model name.
+  Full original terms: runtime/tts/licenses/LICENSE-SenseVoice.
+- Silero VAD, Copyright (c) 2020-present Silero Team, MIT (commercial use allowed).
+  https://github.com/snakers4/silero-vad
+  Full license: runtime/tts/licenses/LICENSE-Silero.
+- ASR reuses sherpa-onnx 1.13.8 (Apache-2.0) and ONNX Runtime (MIT), already
+  listed above. No additional Python/runtime dependency and no cloud ASR.
+- Built-in asr-test.wav is synthetic speech generated locally using the bundled
+  MIT MeloTTS model; text: 你好小离，今天天气怎么样？ No human voice recording.
