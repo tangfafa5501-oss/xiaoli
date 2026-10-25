@@ -6,6 +6,9 @@ on:
       tag:
         description: Release tag
         default: v0.4
+      base_tag:
+        description: Existing release supplying the compatible base zip (read only)
+        default: v0.3
       publish:
         description: Upload the final zip and publish the release (false = build + smoke test only)
         type: boolean
@@ -15,7 +18,7 @@ permissions:
   contents: write
 
 env:
-  BASE_ASSET: XiaoLi-${{ inputs.tag }}-base-no-model.zip
+  BASE_ASSET: XiaoLi-${{ inputs.base_tag }}-base-no-model.zip
   FINAL_ASSET: XiaoLi-${{ inputs.tag }}-Windows-x64.zip
   MODEL_URL: https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf
   MODEL_SHA256: b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897
@@ -36,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download base zip from the release
-        run: gh release download "${{ inputs.tag }}" -p "$BASE_ASSET" -D build --clobber
+        run: gh release download "${{ inputs.base_tag }}" -p "$BASE_ASSET" -D build --clobber
 
       - uses: actions/setup-go@v5
         with:
