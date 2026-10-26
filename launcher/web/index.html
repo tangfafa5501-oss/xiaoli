@@ -594,7 +594,7 @@ function startMic(rec) {
       await cleanup;
       if(!recorder.live(rec)) {releaseMic(rec);return;}
       mark('asr-start');
-      if(pendingMicSession) {await asrRequest({action:'cancel',session:pendingMicSession});pendingMicSession='';}
+      if(pendingMicSession) {const old=pendingMicSession;pendingMicSession='';await asrRequest({action:'cancel',session:old}).catch(()=>{});} // best effort: 409 stale means already released
       let started;
       for(let attempt=0;;attempt++) {
         try {started=await asrRequest({action:'start'});break;}
