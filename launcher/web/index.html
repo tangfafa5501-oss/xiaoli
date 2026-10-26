@@ -552,6 +552,8 @@ function startMic(rec) {
   })();
 }
 async function finishMic(rec) {
+  // Freeze physical capture at the chat endpoint; flush only the retained tail.
+  if(rec.chatEpoch!==undefined) rec.stream?.getTracks().forEach(t=>t.stop());
   try {
     await rec.setup;
     if(!recorder.live(rec)) return;
@@ -582,8 +584,12 @@ mic.addEventListener('keydown',e=>{
 });
 mic.addEventListener('keyup',e=>{if(e.key===' ' || e.key==='Enter') {e.preventDefault();recorder.up(performance.now());}});
 window.addEventListener('keydown',e=>{if(e.key==='Escape') {chatMode.close();cancelMic();}});
-window.addEventListener('blur',()=>{if(chatMode.enabled)chatMode.close();cancelMic();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){chatMode.close();cancelMic();}});
+function suspendChat() {
+  if(chatMode.enabled){chatMode.close();addBubble('her','聊天模式已暂停，回来后可以再点开。');}
+  cancelMic();
+}
+window.addEventListener('blur',suspendChat);
+document.addEventListener('visibilitychange',()=>{if(document.hidden) suspendChat();});
 let partialWarned=false;
 async function pollASR() {
   try {
@@ -601,7 +607,7 @@ async function pollASR() {
   setTimeout(pollASR,1000);
 }
 pollASR();
-window.addEventListener('pagehide',cancelMic);
+window.addEventListener('pagehide',()=>{chatMode.close();cancelMic();});
 
 async function waitForBrain() {
   for (;;) {

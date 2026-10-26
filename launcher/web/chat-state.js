@@ -7,7 +7,7 @@ class XiaoliChat {
   close() {this.enabled=false;++this.epoch;this.h.cancel?.();this.set('off');}
   resume() {const e=++this.epoch;this.set('guard');this.h.delay(()=>{if(this.live(e)){this.voice=0;this.silence=0;this.set('listening');this.h.listen?.(e);}},300);}
   activity(e,active,ms) {if(!this.live(e)||this.state!=='listening')return;if(active){this.voice+=ms;this.silence=0;}else if(this.voice)this.silence+=ms;if(this.voice && this.silence>=1500){this.set('thinking');this.h.finish?.();}}
-  final(e,text) {if(!this.live(e))return false;if(this.voice<300 || [...text.replace(/[^\p{L}\p{N}]/gu,'')].length<2){this.resume();return false;}this.set('thinking');return true;}
+  final(e,text) {if(!this.live(e) || !['listening','thinking'].includes(this.state))return false;if(this.voice<300 || [...text.replace(/[^\p{L}\p{N}]/gu,'')].length<2){this.resume();return false;}this.set('thinking');return true;}
   speaking(e) {if(this.live(e))this.set('speaking');}
   done(e) {if(this.live(e))this.resume();}
   interrupt() {if(!this.enabled)return;++this.epoch;this.h.cancel?.();this.resume();}
