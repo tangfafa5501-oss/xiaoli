@@ -101,6 +101,7 @@ static int start_decoder(void) {
 static int readable(const char *path) {
   FILE *f=fopen(path,"rb");if(!f) return 0;fclose(f);return 1;
 }
+static int activity;
 static void text_reply(const char *kind,unsigned session,unsigned revision,const char *text) {
   char out[16384];size_t j=(size_t)snprintf(out,sizeof(out),
     "{\"kind\":\"%s\",\"session\":%u,\"revision\":%u,\"text\":\"",kind,session,revision);
@@ -111,7 +112,7 @@ static void text_reply(const char *kind,unsigned session,unsigned revision,const
     else if(ch<32) j+=(size_t)snprintf(out+j,sizeof(out)-j,"\\u%04x",ch);
     else out[j++]=(char)ch;
   }
-  out[j++]='"';out[j++]='}';out[j]=0;reply(out);
+  j+=(size_t)snprintf(out+j,sizeof(out)-j,"\",\"voiceActive\":%s}",activity ? "true" : "false");reply(out);
 }
 int main(void) {
 #ifdef _WIN32
@@ -147,6 +148,9 @@ int main(void) {
   v.sample_rate=16000;v.num_threads=1;v.provider="cpu";
   const SherpaOnnxVoiceActivityDetector *vad=SherpaOnnxCreateVoiceActivityDetector(&v,32);
   if(!vad) return 3;
+  v.silero_vad.min_silence_duration=0.032f;
+  const SherpaOnnxVoiceActivityDetector *monitor=SherpaOnnxCreateVoiceActivityDetector(&v,32);
+  if(!monitor) return 3;
   // Warm recognizer kernels; no network, no microphone needed.
   float silence[16000]={0};
   const SherpaOnnxOfflineStream *warm=SherpaOnnxCreateOfflineStream(asr);
@@ -164,25 +168,32 @@ int main(void) {
     if(cmd!=1 && w[3]!=session) break;
     if(cmd==1) {stop_decoder(0);session=w[3];revision=0;sent[0]=0;
       if(!start_decoder()) return 7;
-      SherpaOnnxVoiceActivityDetectorReset(vad);}
+      SherpaOnnxVoiceActivityDetectorReset(vad);SherpaOnnxVoiceActivityDetectorReset(monitor);activity=0;}
     if(cmd==2) {
       float pcm[4096];if(fread(pcm,sizeof(float),n,stdin)!=n) break;
       int ok=1;for(unsigned i=0;i<n;i++) if(!isfinite(pcm[i]) || fabsf(pcm[i])>1) ok=0;
       if(!ok || total+valid>32*16000) break;
+      activity=0;
+      for(unsigned i=0;i<n;i+=512) {
+        SherpaOnnxVoiceActivityDetectorAcceptWaveform(monitor,pcm+i,512);
+        if(SherpaOnnxVoiceActivityDetectorDetected(monitor)) activity=1;
+        while(!SherpaOnnxVoiceActivityDetectorEmpty(monitor)) SherpaOnnxVoiceActivityDetectorPop(monitor);
+      }
       LOCK();memcpy(audio+total,pcm,valid*sizeof(float));total+=valid;WAKE();UNLOCK();
     }
-    if(cmd==4) {stop_decoder(0);total=0;SherpaOnnxVoiceActivityDetectorReset(vad);}
+    if(cmd==4) {stop_decoder(0);total=0;SherpaOnnxVoiceActivityDetectorReset(vad);SherpaOnnxVoiceActivityDetectorReset(monitor);activity=0;}
     ++revision;
     if(cmd!=3) {
       char snapshot[12000];LOCK();snprintf(snapshot,sizeof(snapshot),"%s",preview);UNLOCK();
       if(cmd==2 && snapshot[0] && strcmp(snapshot,sent)) {
         text_reply("partial",session,revision,snapshot);snprintf(sent,sizeof(sent),"%s",snapshot);continue;
       }
-      char out[160];snprintf(out,sizeof(out),"{\"kind\":\"ack\",\"session\":%u,\"revision\":%u}",session,revision);reply(out);
+      char out[200];snprintf(out,sizeof(out),"{\"kind\":\"ack\",\"session\":%u,\"revision\":%u,\"voiceActive\":%s}",session,revision,activity ? "true" : "false");reply(out);
       if(cmd==4) session=0;
       continue;
     }
     stop_decoder(1);
+    SherpaOnnxVoiceActivityDetectorReset(vad);
     // Decode only at finish: chunk ACK never waits for SenseVoice. VAD splits
     // internally; every segment (including the flushed tail) is accumulated.
     char text[12000]={0};size_t used=0;
@@ -210,5 +221,6 @@ int main(void) {
   }
   stop_decoder(0);
   if(online) SherpaOnnxDestroyOnlineRecognizer(online);
+  SherpaOnnxDestroyVoiceActivityDetector(monitor);
   SherpaOnnxDestroyVoiceActivityDetector(vad);SherpaOnnxDestroyOfflineRecognizer(asr);return 0;
 }

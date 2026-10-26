@@ -252,3 +252,21 @@ func TestASRRejectsRegressingRevision(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
+
+func TestASRVoiceActivityBackwardCompatible(t *testing.T) {
+	fakeASR(t, func(h [6]uint32) []byte {
+		var out map[string]any
+		json.Unmarshal(fakeReply(h), &out)
+		out["voiceActive"] = true
+		data, _ := json.Marshal(out)
+		return data
+	})
+	session := startFake(t)
+	pcm, _ := json.Marshal(make([]float32, 512))
+	w := asrHTTP(`{"action":"chunk","session":"` + session + `","samples":` + string(pcm) + `,"validSamples":512}`)
+	var out map[string]any
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if w.Code != 200 || out["voiceActive"] != true || out["session"] != session {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

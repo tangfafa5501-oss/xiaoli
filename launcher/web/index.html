@@ -58,6 +58,11 @@
     color: #fff; font: inherit; font-size: 14px; cursor: pointer; background: rgba(20,24,36,.47);
     backdrop-filter: blur(13px); border: 1px solid rgba(255,255,255,.3); box-shadow: 0 8px 28px rgba(0,0,0,.16); }
   .voice:hover { background: rgba(70,60,55,.65); }
+  .chat-toggle {position:relative; background:#141824;color:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:10px;cursor:pointer;}
+  .chat-tip {display:none;position:absolute;bottom:110%;right:0;width:270px;background:#141824;color:#cbd5e1;padding:12px;border-radius:10px;font-size:14px;line-height:1.5;}
+  .chat-toggle:hover .chat-tip,.chat-toggle:focus-visible .chat-tip {display:block;}
+  .bar {gap:8px;}
+  @media(max-width:759px){.composer{width:calc(100vw - 224px);}}
   .mic-wrap { display: inline-flex; flex: none; }
   .mic { width: 68px; height: 68px; display: grid; place-items: center; border: 0; border-radius: 50%;
     background: rgb(250,240,228); color: rgb(150,96,60); box-shadow: 0 0 24px rgba(255,200,150,.45);
@@ -120,6 +125,7 @@
       <textarea id="input" rows="1" aria-label="输入消息" placeholder="想说什么，在这里打字…" disabled></textarea>
       <button class="send" id="send" aria-label="发送" disabled>发送</button>
     </div>
+    <button id="chat-mode" class="chat-toggle" aria-pressed="false" aria-describedby="chat-tip">聊天模式<span id="chat-tip" role="tooltip" class="chat-tip">开启后像打电话：一直听你说，停顿约 1.5 秒自动发送；小离说完会继续听。再点一次关闭。麦克风可打断，Esc 退出。</span></button>
     <span class="mic-wrap" title="点按开始，再点结束；按住说话，滑出取消">
       <button class="mic" id="mic" disabled aria-pressed="false" aria-label="点按开始，再点结束；按住说话，滑出取消">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -131,6 +137,7 @@
   <div class="wake" id="wake">小离正在醒来，稍等一下下…<br><span class="dots"><span></span><span></span><span></span></span></div>
 </div>
 <script src="/asr-state.js"></script>
+<script src="/chat-state.js"></script>
 <script>
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
@@ -149,6 +156,7 @@ const voice = document.getElementById('voice');
 let muted = false;
 try { muted = localStorage.getItem('xiaoli-muted') === 'true'; } catch(e) {}
 let audioContext, activeSource, audioEpoch = 0;
+let ttsWarningEpoch=-1;
 let flushSubtitle = null;
 let lastSendAt = null;
 let synthChain = Promise.resolve(), playChain = Promise.resolve();
@@ -191,23 +199,26 @@ function queueSentence(text, reveal = () => {}) {
     try {
       const res = await fetch('/api/tts', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text}), signal: AbortSignal.timeout(35000)});
-      if (!res.ok || res.status === 204) return null;
+      if (!res.ok) throw new Error('TTS unavailable');
+      if(res.status === 204) return null;
       const wav = await res.arrayBuffer();
       if (epoch !== audioEpoch || muted) return null;
       if (!audioContext || audioContext.state !== 'running') return null;
       return await audioContext.decodeAudioData(wav);
-    } catch(e) { console.info('TTS silent fallback', String(e)); return null; }
+    } catch(e) { console.info('TTS silent fallback', String(e));if(epoch===audioEpoch && chatMode.enabled && ttsWarningEpoch!==epoch){ttsWarningEpoch=epoch;addBubble('her','声音暂时没准备好，我先用文字陪你聊。');}return null; }
   });
   synthChain = generated.then(() => {});
   playChain = playChain.then(async () => {
     const buffer = await generated;
+    if(epoch!==audioEpoch) return;
     reveal();
     if (!buffer || recording || muted || epoch !== audioEpoch) return;
     await new Promise(resolve => {
       const source = audioContext.createBufferSource();
       source.buffer = buffer; source.connect(audioContext.destination); activeSource = source;
-      source.onended = () => { if (activeSource === source) activeSource = null; resolve(); };
+      source.onended = () => { console.info('TTS_END',JSON.stringify({at:performance.now(),epoch}));if (activeSource === source) activeSource = null; resolve(); };
       console.info('TTS_PLAY', JSON.stringify({text, delay_ms:performance.now()-completed, duration:buffer.duration, send_to_play_ms:lastSendAt === null ? null : performance.now()-lastSendAt, output_latency_ms:1000*(audioContext.outputLatency || audioContext.baseLatency || 0)}));
+      chatMode.speaking(chatMode.epoch);
       source.start();
     });
   }).catch(e => console.info('TTS playback fallback', String(e)));
@@ -305,7 +316,7 @@ function typingBubble() {
 
 function setBusy(b) {
   busy = b;
-  send.disabled = b;
+  send.disabled = b || chatMode.enabled;
   input.disabled = false;
   if (!b) input.focus();
 }
@@ -331,10 +342,12 @@ function showChips() {
   chips.classList.remove('hidden');
 }
 
-async function ask() {
+async function ask(fromChat=false) {
+  if(chatMode.enabled && fromChat!==true) return;
   if (recorder.requestSend()) return;
   const text = input.value.trim();
   if (!text || busy) return;
+  const chatRound=chatMode.enabled ? chatMode.epoch : -1;
   stopAudio();
   if (!muted) unlockAudio();
   chips.classList.add('hidden');
@@ -353,6 +366,7 @@ async function ask() {
   lastSendAt = performance.now();
   const speak = sentenceStream(reveal);
   const controller = new AbortController(); chatAbort = controller;
+  const responseTimeout=setTimeout(()=>controller.abort(),90000);
   try {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -364,6 +378,7 @@ async function ask() {
     let buf = '';
     for (;;) {
       const { value, done } = await reader.read();
+      if (controller.signal.aborted) throw new Error('aborted');
       if (done) break;
       buf += dec.decode(value, { stream: true });
       let i;
@@ -391,6 +406,7 @@ async function ask() {
     speak(final, true);
     history.push({ role: 'assistant', content: final });
   } catch (e) {
+    if(chatAbort!==controller) {clearTimeout(responseTimeout);return;}
     stopAudio();
     if (controller.signal.aborted) {
       bubble.textContent = tidy(raw).trim() || '我在听，你说。';
@@ -400,7 +416,10 @@ async function ask() {
       history.pop();
     }
   }
-  setBusy(false);
+  clearTimeout(responseTimeout);
+  if(chatAbort===controller) setBusy(false);
+  await synthChain; await playChain;
+  chatMode.done(chatRound);
 }
 
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; document.documentElement.style.setProperty('--input-height', Math.max(52, input.offsetHeight + 12) + 'px'); }
@@ -411,6 +430,21 @@ input.addEventListener('keydown', e => {
 send.onclick = ask;
 
 
+const chatButton=document.getElementById('chat-mode');
+const chatMode=new XiaoliChat({
+  delay:(fn,ms)=>setTimeout(fn,ms),
+  state(state) {
+    chatButton.setAttribute('aria-pressed',String(chatMode.enabled));
+    send.disabled=busy || chatMode.enabled;
+    if(typeof mic!=='undefined') mic.setAttribute('aria-label',chatMode.enabled ? '打断当前轮，重新听你说' : '点按开始，再点结束；按住说话，滑出取消');
+    const label={listening:'听你说',thinking:'思考中',speaking:'小离在说',guard:'稍等，马上听你说',off:''}[state];
+    asrStatus.textContent=label;asrStatus.classList.toggle('hidden',!label);
+  },
+  listen(){recorder.down(performance.now(),input.value,input.selectionStart);recorder.pressAt=null;},
+  finish(){recorder.stop();},
+  cancel(){cancelMic();chatAbort?.abort();chatAbort=null;setBusy(false);stopAudio();synthChain=Promise.resolve();playChain=Promise.resolve();}
+});
+chatButton.onclick=()=>{if(chatMode.enabled)chatMode.close();else if(!mic.disabled)chatMode.open();};
 const mic = document.getElementById('mic');
 try { localStorage.removeItem('xiaoli-asr-auto-send'); } catch(e) {}
 let micCleanup = Promise.resolve();
@@ -419,7 +453,7 @@ const asrStatus=document.getElementById('asr-status');
 function micState() {
   mic.classList.toggle('listening', !!recording);
   mic.setAttribute('aria-pressed',String(!!recording));
-  mic.setAttribute('aria-label',recording ? '正在听，再点结束；Esc 取消' : '点按开始，再点结束；按住说话，滑出取消');
+  mic.setAttribute('aria-label',chatMode.enabled ? '打断当前轮，重新听你说' : recording ? '正在听，再点结束；Esc 取消' : '点按开始，再点结束；按住说话，滑出取消');
 }
 function releaseMic(rec) {
   if (rec.timer) clearTimeout(rec.timer);
@@ -439,9 +473,10 @@ const recorder=new XiaoliRecording({
     if(value!==null) input.value=value;
     input.classList.toggle('asr-partial',temporary);
     input.readOnly=temporary; // Freeze the snapshot until final or explicit cancellation.
+    if(chatMode.enabled) status={listening:'听你说',thinking:'思考中',speaking:'小离在说',guard:'稍等，马上听你说'}[chatMode.state]||status;
     asrStatus.textContent=status;asrStatus.classList.toggle('hidden',!status);autosize();
   },
-  start(rec) { recording=rec;micState();startMic(rec); },
+  start(rec) { if(chatMode.enabled) rec.chatEpoch=chatMode.epoch;recording=rec;micState();startMic(rec); },
   finish(rec) { finishMic(rec); },
   cancel(rec) {
     recording=null;releaseMic(rec);micState();
@@ -451,6 +486,10 @@ const recorder=new XiaoliRecording({
   },
   committed(rec,text) {
     recording=null;releaseMic(rec);micState();input.focus();
+    if(rec.chatEpoch!==undefined) {
+      if(chatMode.final(rec.chatEpoch,text)) ask(true);
+      else input.value=rec.draft;
+    }
     console.info('ASR_FINAL',JSON.stringify({text,at:performance.now()}));
   },
   async send(rec) {
@@ -461,7 +500,7 @@ const recorder=new XiaoliRecording({
   }
 });
 function cancelMic() { recorder.cancel(); }
-function micFailure(message) { cancelMic();addBubble('her',message); }
+function micFailure(message) { if(chatMode.enabled) chatMode.close();cancelMic();addBubble('her',message); }
 function queueChunk(rec,data) {
   if(!recorder.live(rec)) return;
   if(++rec.queued>16) {micFailure('我这会儿听得有点慢，先打字告诉我吧。');return;}
@@ -470,6 +509,7 @@ function queueChunk(rec,data) {
     const result=await asrRequest({action:'chunk',session:rec.session,
       samples:Array.from(data.samples),validSamples:data.validSamples});
     recorder.result(rec,result);
+    if(rec.chatEpoch!==undefined) chatMode.activity(rec.chatEpoch,result.voiceActive===true,data.validSamples/16);
   }).catch(()=>{if(recorder.live(rec)) micFailure('耳朵暂时没准备好，先打字告诉我吧。');})
     .finally(()=>{rec.queued--;});
 }
@@ -502,6 +542,7 @@ function startMic(rec) {
       await rec.context.resume();
       if(!recorder.live(rec)) {releaseMic(rec);return;}
       recorder.ready(rec);
+      console.info('ASR_LISTEN',JSON.stringify({at:performance.now(),chatEpoch:rec.chatEpoch}));
       rec.timer=setTimeout(()=>{if(recorder.live(rec)) recorder.stop();},30000);
     } catch(e) {
       releaseMic(rec);
@@ -529,7 +570,7 @@ async function finishMic(rec) {
   } catch(e) {if(recorder.live(rec)) micFailure('耳朵暂时没准备好，先打字告诉我吧。');}
 }
 mic.addEventListener('pointerdown',e=>{
-  if(e.button!==0) return;e.preventDefault();mic.setPointerCapture(e.pointerId);
+  if(e.button!==0) return;if(chatMode.enabled){e.preventDefault();chatMode.interrupt();return;}e.preventDefault();mic.setPointerCapture(e.pointerId);
   recorder.down(performance.now(),input.value,input.selectionStart);
 });
 mic.addEventListener('pointerup',e=>{e.preventDefault();recorder.up(performance.now());});
@@ -538,12 +579,12 @@ mic.addEventListener('pointermove',e=>{
 });
 mic.addEventListener('pointercancel',cancelMic);
 mic.addEventListener('keydown',e=>{
-  if((e.key===' ' || e.key==='Enter') && !e.repeat) {e.preventDefault();recorder.down(performance.now(),input.value,input.selectionStart);}
+  if((e.key===' ' || e.key==='Enter') && !e.repeat) {if(chatMode.enabled){e.preventDefault();chatMode.interrupt();return;}e.preventDefault();recorder.down(performance.now(),input.value,input.selectionStart);}
 });
 mic.addEventListener('keyup',e=>{if(e.key===' ' || e.key==='Enter') {e.preventDefault();recorder.up(performance.now());}});
-window.addEventListener('keydown',e=>{if(e.key==='Escape') cancelMic();});
-window.addEventListener('blur',cancelMic);
-document.addEventListener('visibilitychange',()=>{if(document.hidden) cancelMic();});
+window.addEventListener('keydown',e=>{if(e.key==='Escape') {chatMode.close();cancelMic();}});
+window.addEventListener('blur',()=>{if(chatMode.enabled)chatMode.close();cancelMic();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){chatMode.close();cancelMic();}});
 let partialWarned=false;
 async function pollASR() {
   try {
@@ -554,7 +595,7 @@ async function pollASR() {
     }
     mic.disabled=micFailed || !s.asr_ready || !s.ready;
     if(!s.asr_ready && (asrEverReady || s.asr_finished) && !micWarned) {
-      micWarned=true; if(recording) cancelMic();
+      micWarned=true; if(chatMode.enabled)chatMode.close();if(recording) cancelMic();
       addBubble('her','耳朵暂时没准备好，先打字告诉我吧。');
     }
   } catch(e) {mic.disabled=true;}
