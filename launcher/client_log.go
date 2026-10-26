@@ -16,7 +16,7 @@ var clientLogs struct {
 	since time.Time
 	count int
 }
-var clientFields = []string{"event", "stage", "name", "message", "status", "action", "muted", "ttsState", "ttsRate", "ttsPlaying", "micRate", "chatMode", "ua"}
+var clientFields = []string{"event", "stage", "name", "message", "status", "action", "muted", "ttsState", "ttsRate", "ttsPlaying", "micRate", "chatMode", "ua", "n", "validSamples", "maxAbs"}
 
 func clientPrintable(s string) string {
 	r := []rune(strings.Map(func(r rune) rune {
@@ -70,6 +70,11 @@ func handleClientLog(w http.ResponseWriter, r *http.Request) {
 	line := "CLIENT " + event
 	for _, k := range clientFields[1:] {
 		v, ok := b[k]
+		if k == "n" || k == "validSamples" || k == "maxAbs" {
+			if _, number := v.(float64); !number {
+				continue
+			}
+		}
 		if !ok {
 			continue
 		}

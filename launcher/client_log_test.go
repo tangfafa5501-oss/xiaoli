@@ -37,10 +37,16 @@ func TestClientLog(t *testing.T) {
 	if !strings.Contains(out.String(), "hello world ") || strings.Contains(out.String(), "samples") {
 		t.Fatal(out.String())
 	}
+	if got := call(`{"event":"mic_failure","stage":"chunk","n":1024,"validSamples":1000,"maxAbs":1.02,"samples":[1]}`, ""); got != 204 {
+		t.Fatal(got)
+	}
+	if !strings.Contains(out.String(), "n=1024 validSamples=1000 maxAbs=1.02") || strings.Contains(out.String(), "samples=") {
+		t.Fatal(out.String())
+	}
 	if len([]rune(clientPrintable(strings.Repeat("中", 300)))) != 200 {
 		t.Fatal("truncate")
 	}
-	for i := 1; i < 30; i++ {
+	for i := 2; i < 30; i++ {
 		if call(`{"event":"mic_start"}`, "") != 204 {
 			t.Fatal(i)
 		}

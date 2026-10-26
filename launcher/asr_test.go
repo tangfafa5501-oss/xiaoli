@@ -17,6 +17,10 @@ import (
 // Real HTTP handler and binary pipe, without model files or network services.
 func fakeASR(t *testing.T, respond func([6]uint32) []byte) {
 	t.Helper()
+	fakeASRFrames(t, func(h [6]uint32, _ []float32) []byte { return respond(h) })
+}
+func fakeASRFrames(t *testing.T, respond func([6]uint32, []float32) []byte) {
+	t.Helper()
 	input, writer := io.Pipe()
 	output, reader := io.Pipe()
 	asrIn = writer
@@ -46,7 +50,7 @@ func fakeASR(t *testing.T, respond func([6]uint32) []byte) {
 			if binary.Read(input, binary.LittleEndian, pcm) != nil {
 				return
 			}
-			data := respond(h)
+			data := respond(h, pcm)
 			if binary.Write(reader, binary.LittleEndian, uint32(len(data))) != nil {
 				return
 			}
@@ -147,7 +151,7 @@ func TestASRCancelDiscardsLateFinal(t *testing.T) {
 }
 func TestASRBadRequestsAndFrames(t *testing.T) {
 	fakeASR(t, fakeReply)
-	for _, body := range []string{`{"action":"reset"}`, `{"action":"chunk","samples":[0],"validSamples":1}`, `{"action":"finish","samples":[0]}`, `{"action":"chunk","samples":[],"validSamples":-1}`, `{"action":"start","samples":[2]}`} {
+	for _, body := range []string{`{"action":"reset"}`, `{"action":"chunk","samples":[],"validSamples":1}`, `{"action":"finish","samples":[0]}`, `{"action":"chunk","samples":[],"validSamples":-1}`, `{"action":"start","samples":[2]}`} {
 		if w := asrHTTP(body); w.Code != 400 {
 			t.Fatal(body, w.Code)
 		}
@@ -279,12 +283,9 @@ func TestASRValidationReleasesCurrent(t *testing.T) {
 		name, payload string
 		status        int
 	}{
+		{"empty samples", `"samples":[],"validSamples":0`, 400},
 		{"old client", `"samples":` + zeroPCM(), 426},
-		{"null validSamples", `"samples":` + zeroPCM() + `,"validSamples":null`, 400},
-		{"bad count", `"samples":[0],"validSamples":0`, 400},
-		{"bad validSamples", `"samples":` + zeroPCM() + `,"validSamples":513`, 400},
 		{"bad sample type", `"samples":["bad"],"validSamples":1`, 400},
-		{"bad sample range", `"samples":` + strings.Replace(zeroPCM(), "[0", "[2", 1) + `,"validSamples":512`, 400},
 		{"bad count type", `"samples":[0],"validSamples":"bad"`, 400},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -316,7 +317,7 @@ func zeroPCM() string { b, _ := json.Marshal(make([]float32, 512)); return strin
 func TestASRInvalidStaleTokenKeepsCurrent(t *testing.T) {
 	fakeASR(t, fakeReply)
 	session := startFake(t)
-	if w := asrHTTP(`{"action":"chunk","session":"other","samples":[0],"validSamples":0}`); w.Code != 400 {
+	if w := asrHTTP(`{"action":"chunk","session":"other","samples":[],"validSamples":0}`); w.Code != 400 {
 		t.Fatal(w.Code)
 	}
 	if asrCurrent.Load() == nil || asrCurrent.Load().token != session {

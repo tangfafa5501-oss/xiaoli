@@ -17,7 +17,7 @@ class XiaoliCapture extends AudioWorkletProcessor {
     };
   }
   emit(v) {
-    this.buffer[this.used++]=v;
+    this.buffer[this.used++]=Number.isFinite(v)?Math.max(-1,Math.min(1,v)):0;
     if(this.used===1024) {
       this.port.postMessage({kind:'chunk',samples:this.buffer,validSamples:1024});
       this.buffer=new Float32Array(1024);this.used=0;

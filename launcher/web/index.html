@@ -490,6 +490,7 @@ function micLog(event,stage,err={},rec=recording) {
   const data={event,stage,name:err.name||'',message:err.serverMessage||err.message||'',status:err.status||0,action:err.action||'',
     muted,ttsState:audioContext?.state||'none',ttsRate:audioContext?.sampleRate||0,ttsPlaying:!!activeSource,
     micRate:rec?.context?.sampleRate||0,chatMode:chatMode.state,ua:navigator.userAgent};
+  if(stage==='chunk') Object.assign(data,err.chunkStats||{});
   console.warn(data);fetch('/api/log',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).catch(()=>{});
 }
 function reportMicFailure(stage,err) {
@@ -560,15 +561,19 @@ const recorder=new XiaoliRecording({
 function cancelMic() { recorder.cancel(); }
 function micFailure(message) { if(chatMode.enabled) chatMode.close();cancelMic();addBubble('her',message); }
 function queueChunk(rec,data) {
-  if(!recorder.live(rec)) return;
-  if(++rec.queued>16) {reportMicFailure('chunk',Object.assign(new Error('chunk backlog'),{name:'TimeoutError'}));return;}
+  if(!recorder.live(rec) || !data.samples.length) return;
+  const chunkStats={n:data.samples.length,validSamples:data.validSamples,maxAbs:Array.from(data.samples).reduce((m,v)=>Math.max(m,Number.isFinite(v)?Math.abs(v):0),0)};
+  if(++rec.queued>16) {reportMicFailure('chunk',Object.assign(new Error('chunk backlog'),{name:'TimeoutError',chunkStats}));return;}
   rec.chain=rec.chain.then(async()=>{
     if(!recorder.live(rec)) return;
     const result=await asrRequest({action:'chunk',session:rec.session,
       samples:Array.from(data.samples),validSamples:data.validSamples});
     recorder.result(rec,result);
     if(rec.chatEpoch!==undefined) chatMode.activity(rec.chatEpoch,result.voiceActive===true,data.validSamples/16);
-  }).catch(e=>{if(recorder.live(rec)) reportMicFailure('chunk',e);})
+  }).catch(e=>{
+    if(e.status===400 && pendingMicSession===rec.session) pendingMicSession='';
+    if(recorder.live(rec)) reportMicFailure('chunk',Object.assign(e,{chunkStats}));
+  })
     .finally(()=>{rec.queued--;});
 }
 function startMic(rec) {
@@ -601,7 +606,7 @@ function startMic(rec) {
         catch(e) {if(![409,429].includes(e.status)||attempt>=3) throw e;await micWait(400);if(!recorder.live(rec)) return;}
       }
       rec.session=started.session;pendingMicSession=rec.session;
-      if(!recorder.live(rec)) {releaseMic(rec);await asrRequest({action:'cancel',session:rec.session});return;}
+      if(!recorder.live(rec)) {releaseMic(rec);await asrRequest({action:'cancel',session:rec.session}).catch(()=>{});return;}
       mark('audiocontext');
       try {rec.context=new AudioContext({sampleRate:16000});} catch(e) {rec.context=new AudioContext();}
       if(rec.context.sampleRate!==16000) {await rec.context.close();rec.context=new AudioContext();}
