@@ -90,7 +90,7 @@ try:
         time.sleep(0.1)
     base = 'http://127.0.0.1:' + port_file.read_text().strip()
     html = urllib.request.urlopen(base+'/').read().decode('utf-8')
-    assert 'id="voice"' in html and '小离' in html
+    assert 'id="voice"' in html and '小离' in html and '/asr-state.js' in html
     wait_ready(base)
     metrics['asr'] = test_builtin(base, app/'models/asr/asr-test.wav')
     metrics['tts'] = [test_tts(base, '早上好！今天天气不错。我在呢，有什么事直接跟我说，我帮你搞定。', 'tts-test.wav')]
@@ -179,4 +179,4 @@ finally:
             print(filename,source.read_text(encoding='utf-8',errors='replace')[-4000:])
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
-            f.write('## Windows v0.4 smoke\n```json\n'+json.dumps(metrics,ensure_ascii=False,indent=2)+'\n```\n')
+            f.write('## Windows v0.5-dev smoke\n```json\n'+json.dumps(metrics,ensure_ascii=False,indent=2)+'\n```\n')

@@ -1,5 +1,5 @@
-// Persistent SenseVoice + Silero worker. LE u32 sample count + float32 mono 16k.
-// Count 0 resets a session. Reply: LE u32 length + UTF-8 JSON. DLLs shared with TTS.
+// v1: six LE u32 words: XLR5, version, command, session, count, validSamples.
+// Commands start=1 chunk=2 finish=3 cancel=4. Response: LE length + JSON.
 #include "vendor/c-api.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,31 +39,64 @@ int main(void) {
   SherpaOnnxAcceptWaveformOffline(warm,16000,silence,16000);
   SherpaOnnxDecodeOfflineStream(asr,warm);SherpaOnnxDestroyOfflineStream(warm);
   fputs("READY\n",stdout);fflush(stdout);
-  unsigned total=0;
+  float *audio=(float *)malloc(32*16000*sizeof(float));
+  if(!audio) return 5;
+  unsigned total=0,session=0,revision=0;
   for(;;) {
-    unsigned char h[4];if(fread(h,1,4,stdin)!=4) break;
-    unsigned n=h[0]|(h[1]<<8)|(h[2]<<16)|((unsigned)h[3]<<24);
-    if(n==0) {SherpaOnnxVoiceActivityDetectorReset(vad);total=0;reply("{\"done\":false}");continue;}
-    if(n>4096 || n%512) break;
-    float pcm[4096];if(fread(pcm,sizeof(float),n,stdin)!=n) break;
-    int valid=1;for(unsigned i=0;i<n;i++) if(!isfinite(pcm[i]) || fabsf(pcm[i])>1) valid=0;
-    if(!valid) break;
-    total+=n;
-    for(unsigned i=0;i<n;i+=512) SherpaOnnxVoiceActivityDetectorAcceptWaveform(vad,pcm+i,512);
-    if(SherpaOnnxVoiceActivityDetectorEmpty(vad) && total<30*16000) {reply("{\"done\":false}");continue;}
-    if(SherpaOnnxVoiceActivityDetectorEmpty(vad)) SherpaOnnxVoiceActivityDetectorFlush(vad);
-    if(SherpaOnnxVoiceActivityDetectorEmpty(vad)) {reply("{\"done\":true,\"text\":\"\"}");continue;}
-    const SherpaOnnxSpeechSegment *seg=SherpaOnnxVoiceActivityDetectorFront(vad);
-    const SherpaOnnxOfflineStream *s=SherpaOnnxCreateOfflineStream(asr);
-    SherpaOnnxAcceptWaveformOffline(s,16000,seg->samples,seg->n);
-    SherpaOnnxDecodeOfflineStream(asr,s);
-    const SherpaOnnxOfflineRecognizerResult *r=SherpaOnnxGetOfflineStreamResult(s);
-    if(!r || !r->json) return 4;
-    // r->json already escapes model output; nest it instead of hand-escaping text.
-    size_t cap=strlen(r->json)+80;char *out=(char *)malloc(cap);if(!out) return 5;
-    snprintf(out,cap,"{\"done\":true,\"result\":%s}",r->json);reply(out);free(out);
-    SherpaOnnxDestroyOfflineRecognizerResult(r);SherpaOnnxDestroyOfflineStream(s);
-    SherpaOnnxDestroySpeechSegment(seg);SherpaOnnxVoiceActivityDetectorReset(vad);total=0;
+    unsigned char h[24];if(fread(h,1,24,stdin)!=24) break;
+    unsigned w[6];for(unsigned i=0;i<6;i++) w[i]=(unsigned)h[4*i]|((unsigned)h[4*i+1]<<8)|((unsigned)h[4*i+2]<<16)|((unsigned)h[4*i+3]<<24);
+    unsigned cmd=w[2],n=w[4],valid=w[5];
+    if(w[0]!=0x35524c58 || w[1]!=1 || !w[3] || cmd<1 || cmd>4 ||
+       (cmd==2 ? (!n || n>4096 || n%512 || !valid || valid>n) : (n || valid))) break;
+    if(cmd!=1 && w[3]!=session) break;
+    if(cmd==1) {session=w[3];revision=0;total=0;SherpaOnnxVoiceActivityDetectorReset(vad);}
+    if(cmd==2) {
+      float pcm[4096];if(fread(pcm,sizeof(float),n,stdin)!=n) break;
+      int ok=1;for(unsigned i=0;i<n;i++) if(!isfinite(pcm[i]) || fabsf(pcm[i])>1) ok=0;
+      if(!ok || total+valid>32*16000) break;
+      memcpy(audio+total,pcm,valid*sizeof(float));total+=valid;
+    }
+    if(cmd==4) {total=0;SherpaOnnxVoiceActivityDetectorReset(vad);}
+    ++revision;
+    if(cmd!=3) {
+      char out[160];snprintf(out,sizeof(out),"{\"kind\":\"ack\",\"session\":%u,\"revision\":%u}",session,revision);reply(out);
+      if(cmd==4) session=0;
+      continue;
+    }
+    // Decode only at finish: chunk ACK never waits for SenseVoice. VAD splits
+    // internally; every segment (including the flushed tail) is accumulated.
+    char text[12000]={0};size_t used=0;
+    for(unsigned offset=0;offset<total+512;offset+=512) {
+      float block[512]={0};unsigned count=offset<total ? total-offset : 0;if(count>512) count=512;
+      if(count) memcpy(block,audio+offset,count*sizeof(float));
+      SherpaOnnxVoiceActivityDetectorAcceptWaveform(vad,block,512);
+      if(offset+512>=total+512) SherpaOnnxVoiceActivityDetectorFlush(vad);
+      while(!SherpaOnnxVoiceActivityDetectorEmpty(vad)) {
+        const SherpaOnnxSpeechSegment *seg=SherpaOnnxVoiceActivityDetectorFront(vad);
+        const SherpaOnnxOfflineStream *stream=SherpaOnnxCreateOfflineStream(asr);
+        SherpaOnnxAcceptWaveformOffline(stream,16000,seg->samples,seg->n);
+        SherpaOnnxDecodeOfflineStream(asr,stream);
+        const SherpaOnnxOfflineRecognizerResult *r=SherpaOnnxGetOfflineStreamResult(stream);
+        if(!r || !r->text) return 4;
+        size_t len=strlen(r->text);if(used+len+2>=sizeof(text)) return 6;
+        if(used && len) text[used++]=' ';
+        memcpy(text+used,r->text,len+1);used+=len;
+        SherpaOnnxDestroyOfflineRecognizerResult(r);SherpaOnnxDestroyOfflineStream(stream);
+        SherpaOnnxDestroySpeechSegment(seg);SherpaOnnxVoiceActivityDetectorPop(vad);
+      }
+    }
+    char out[16384];int prefix=snprintf(out,sizeof(out),"{\"kind\":\"final\",\"session\":%u,\"revision\":%u,\"text\":\"",session,revision);
+    size_t j=(size_t)prefix;
+    for(size_t i=0;i<used;i++) {
+      unsigned char ch=(unsigned char)text[i];
+      if(j+8>=sizeof(out)) return 6;
+      if(ch=='"' || ch=='\\') {out[j++]='\\';out[j++]=(char)ch;}
+      else if(ch<32) {j+=(size_t)snprintf(out+j,sizeof(out)-j,"\\u%04x",ch);}
+      else out[j++]=(char)ch;
+    }
+    out[j++]='"';out[j++]='}';out[j]=0;reply(out);
+    total=0;SherpaOnnxVoiceActivityDetectorReset(vad);
   }
+  free(audio);
   SherpaOnnxDestroyVoiceActivityDetector(vad);SherpaOnnxDestroyOfflineRecognizer(asr);return 0;
 }

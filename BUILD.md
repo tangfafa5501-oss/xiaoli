@@ -61,20 +61,24 @@ UI 默认声音开启，欢迎语默认文字；首次实际播放依赖点击/�
 Smoke 每 100 ms 对启动器进程树中的 小离.exe、llama-server.exe、xiaoli-tts.exe 采样 RSS，记录同时刻合计峰值和各进程峰值（不含 Edge）。TTS 首音频是 WAV endpoint 首字节时间，不是实体声卡播放延迟。失败使 job 失败；无论成功与否保存 metrics 和日志。Windows 实机、声音设备和主观音质仍需人工确认。
 
 
-## v0.4 本地离线输入增量
+## v0.5-dev 第一阶段本地离线输入
 
 另编译 `tts/asr_worker.c` 为 `runtime/tts/xiaoli-asr.exe`（Linux 为 `xiaoli-asr`），与 TTS 共用同目录 sherpa 1.13.8 DLL。
 Windows 编译命令与 TTS 相同，只替换源码为 `tts/asr_worker.c`、输出为 `xiaoli-asr.exe`。
 Linux 同理替换源码与输出文件名，保留 `-Wl,-rpath,$ORIGIN`，DLL/so 不重复打包。
 
 `prepare_tts.py` 同时下载校验 SenseVoiceSmall int8 (2024-07-17) 和 Silero；模型、tokens、VAD、LICENSE、内置测试 WAV 放 `models/asr/`。
-ASR worker 独立常驻，cwd 为 `models/asr`；输入为 LE uint32 样本数 + 16kHz 单声道 float32，零样本表示重置；输出 READY 握手后为 LE uint32 长度 + JSON。
-Go `/api/asr` 的 start/chunk/cancel 会话互斥、同源限制、输入长度限制和超时保护独立于 TTS。
-每块 1024 样本（64ms）；Silero 512 窗、0.32s 静音、0.16s 最短语音、30s 总时限，ASR CPU 4 线程。
+ASR worker 独立常驻，cwd 为 `models/asr`；READY 握手后，请求头为六个 LE uint32：magic=0x35524c58（XLR5）、version=1、command（start=1/chunk=2/finish=3/cancel=4）、session、N、validSamples；chunk 后跟 N 个 float32 mono 16kHz，N≤4096 且为 512 倍数，1≤validSamples≤N。控制命令 N=validSamples=0，绝不共用零样本语义。
+响应仍 LE uint32 JSON 长度，JSON 含 kind（ack/partial/final/error）、session、revision；HTTP 使用随机会话串，Go 映射为 worker 数字 session。错误 HTTP 同时有非 2xx 状态码。
+`/api/asr` 同源、单槽、大小限制、超时杀 worker 均保留；取消会先标记 session 失效，再等管道完成，迟到 final 被拒绝。
+每块 1024 样本（64ms），Worklet flush 将不足块补零到 512 倍数、携带有效数，收到 flushed ack 后排空请求再发 finish。
+当前只存最多 32 秒 PCM（约 2MiB），在 finish 时统一送 Silero 512 窗并识别/拼接全部语音段，包含 flush 尾段；0.32s 静音只分内部段。因此 chunk ack 不等待 SenseVoice，代价是长录音推理集中在 finish。浏览器 30 秒自动停止并填入，始终不自动发送。ASR CPU 仍 4 线程。
 
-麦克风点击开始/再次点击取消；开始时打断小离语音及正在生成的旧回复。
-右键麦克风（键盘 Shift+F10）打开“说完自动发送”设置，默认勾选；取消后只填入。
-设置保存到 `xiaoli-asr-auto-send` localStorage；端口复用及其限制沿用 v0.3。
+点按麦克风开始，再点结束；按住至少 300ms 后松开结束。滑出按钮、Esc、失焦会取消并恢复原草稿。停止后仅在光标处填入文字，Enter/发送按钮才发送；整理期间按发送会等待 final 后发送一次。开麦会先停掉小离的朗读与旧回复。
+录音/整理期间 textarea 整框 #cbd5e1、暂时只读，final 恢复白字。旧自动发送设置在页面加载时删除。
+`asr-state.js` 为纯状态机；partial、session、revision、插入区及 epoch 检查供第二阶段复用，当前不产生 partial。
+`/api/status` 返回 version=v0.5-dev、asr_protocol=1、asr_partial=false。没有改变 release workflow 默认 tag 或发布逻辑。
+本地检查：`cd launcher && go test -race ./... && go vet ./... && go build`；Windows `GOOS=windows GOARCH=amd64 go build`；`node --test launcher/tests/*.cjs`（仓库根）；`python .github/release/check_contrast.py`。
 浏览器要求 AudioWorklet、getUserMedia 和 16kHz AudioContext（当前 Windows Edge/Chrome）。
 模型缺失、进程崩溃和权限/设备错误只禁用麦克风，重新打开页面可重新请求权限。
 

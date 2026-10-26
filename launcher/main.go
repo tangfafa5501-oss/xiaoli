@@ -220,7 +220,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	msg, _ := failMsg.Load().(string)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load(), "asr_ready": asrReady.Load(), "asr_finished": asrFinished.Load()})
+	json.NewEncoder(w).Encode(map[string]any{"version": "v0.5-dev", "asr_protocol": 1, "asr_partial": false, "ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load(), "asr_ready": asrReady.Load(), "asr_finished": asrFinished.Load()})
 }
 
 // /api/alive is a long-lived event stream; while at least one window holds it open we stay running.
