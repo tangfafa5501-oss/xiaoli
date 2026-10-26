@@ -2,9 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -268,5 +271,55 @@ func TestASRVoiceActivityBackwardCompatible(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &out)
 	if w.Code != 200 || out["voiceActive"] != true || out["session"] != session {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestASRValidationReleasesCurrent(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload string
+		status        int
+	}{
+		{"old client", `"samples":` + zeroPCM(), 426},
+		{"null validSamples", `"samples":` + zeroPCM() + `,"validSamples":null`, 400},
+		{"bad count", `"samples":[0],"validSamples":0`, 400},
+		{"bad validSamples", `"samples":` + zeroPCM() + `,"validSamples":513`, 400},
+		{"bad sample type", `"samples":["bad"],"validSamples":1`, 400},
+		{"bad sample range", `"samples":` + strings.Replace(zeroPCM(), "[0", "[2", 1) + `,"validSamples":512`, 400},
+		{"bad count type", `"samples":[0],"validSamples":"bad"`, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeASR(t, fakeReply)
+			var logs bytes.Buffer
+			old := log.Writer()
+			log.SetOutput(&logs)
+			defer log.SetOutput(old)
+			session := startFake(t)
+			w := asrHTTP(`{"action":"chunk","session":"` + session + `",` + tc.payload + `}`)
+			if w.Code != tc.status {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(logs.String(), fmt.Sprintf(`action="chunk" status=%d reason=`, tc.status)) {
+				t.Fatal(logs.String())
+			}
+			if tc.status == 426 && !strings.Contains(w.Body.String(), "client outdated; reload page") {
+				t.Fatal(w.Body.String())
+			}
+			if asrCurrent.Load() != nil {
+				t.Fatal("session retained")
+			}
+			startFake(t) // Must succeed immediately, without waiting for the 35s expiry.
+		})
+	}
+}
+func zeroPCM() string { b, _ := json.Marshal(make([]float32, 512)); return string(b) }
+
+func TestASRInvalidStaleTokenKeepsCurrent(t *testing.T) {
+	fakeASR(t, fakeReply)
+	session := startFake(t)
+	if w := asrHTTP(`{"action":"chunk","session":"other","samples":[0],"validSamples":0}`); w.Code != 400 {
+		t.Fatal(w.Code)
+	}
+	if asrCurrent.Load() == nil || asrCurrent.Load().token != session {
+		t.Fatal("unrelated session released")
 	}
 }

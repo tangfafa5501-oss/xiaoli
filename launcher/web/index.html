@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+<meta name="xiaoli-build" content="__XIAOLI_BUILD__">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>小离</title>
@@ -135,6 +136,7 @@
   </div>
   <div class="wake" id="wake">小离正在醒来，稍等一下下…<br><span class="dots"><span></span><span></span><span></span></span></div>
 </div>
+<script src="/build-state.js"></script>
 <script src="/asr-state.js"></script>
 <script src="/chat-state.js"></script>
 <script>
@@ -147,6 +149,27 @@ const history = [];   // {role, content}
 let busy = false;
 let chatAbort;
 let recording = null;
+const pageBuild=document.querySelector('meta[name="xiaoli-build"]')?.content;
+let reloading=false, reloadSeen=[];
+try {
+  reloadSeen=JSON.parse(sessionStorage.getItem('xiaoli-reload-seen')||'[]');
+  if(!Array.isArray(reloadSeen)) reloadSeen=[];
+  const draft=sessionStorage.getItem('xiaoli-update-draft');
+  if(draft!==null){input.value=draft;sessionStorage.removeItem('xiaoli-update-draft');}
+} catch(e) {}
+function reloadForBuild(serverBuild,force=false) {
+  if(reloading || !XiaoliBuild.shouldReload(pageBuild,serverBuild,reloadSeen,force)) return false;
+  reloading=true;reloadSeen.push(serverBuild);
+  const draft=input.value;
+  try {
+    sessionStorage.setItem('xiaoli-update-draft',draft);
+    sessionStorage.setItem('xiaoli-reload-seen',JSON.stringify(reloadSeen));
+  } catch(e) {}
+  chatMode.close();cancelMic();chatAbort?.abort();stopAudio();
+  location.reload();
+  return true;
+}
+
 
 
 // Sentence pipeline: reveal each sentence when its audio starts; one synthesis at a time,
@@ -423,6 +446,7 @@ async function ask(fromChat=false) {
 
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; document.documentElement.style.setProperty('--input-height', Math.max(52, input.offsetHeight + 12) + 'px'); }
 input.addEventListener('input', autosize);
+autosize();
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ask(); }
 });
@@ -464,6 +488,13 @@ function releaseMic(rec) {
 async function asrRequest(body) {
   const r = await fetch('/api/asr',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
+  if(r.status===426) {
+    let build;
+    try {build=(await (await fetch('/api/status',{cache:'no-store'})).json()).build;} catch(e) {}
+    if(reloading || reloadForBuild(build || 'protocol-426',true)) return new Promise(()=>{});
+    chatMode.close();cancelMic();
+    throw new Error('client outdated');
+  }
   if (!r.ok) throw new Error('ASR unavailable');
   return r.json();
 }
@@ -594,6 +625,7 @@ let partialWarned=false;
 async function pollASR() {
   try {
     const s=await (await fetch('/api/status',{cache:'no-store'})).json();
+    if(reloadForBuild(s.build)) return;
     if(s.asr_ready) asrEverReady=true;
     if(s.asr_ready && !s.asr_partial && !partialWarned) {
       partialWarned=true;addBubble('her','实时预览暂时没准备好，松开后仍会整理文字。');
@@ -613,6 +645,7 @@ async function waitForBrain() {
   for (;;) {
     try {
       const s = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      if (reloadForBuild(s.build)) return false;
       if (s.ready) return true;
       if (s.failed) { wake.innerHTML = s.message || '小离没能醒来，请关掉窗口再试一次。'; return false; }
     } catch (e) {}

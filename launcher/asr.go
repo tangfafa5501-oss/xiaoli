@@ -112,7 +112,15 @@ var asrLast time.Time
 func handleASR(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	responseSession := ""
+	action := ""
+	validation := false
 	errorReply := func(message string, status int) {
+		if status >= 400 && status < 500 {
+			log.Printf("ASR request action=%q status=%d reason=%q", action, status, message)
+			if validation {
+				releaseInvalidASR(responseSession)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]any{"kind": "error", "session": responseSession, "revision": 0, "message": message})
@@ -129,13 +137,37 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 		Action       string    `json:"action"`
 		Session      string    `json:"session"`
 		Samples      []float32 `json:"samples"`
-		ValidSamples int       `json:"validSamples"`
+		ValidSamples *int      `json:"validSamples"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 131072)).Decode(&b); err != nil {
+	// Decode the envelope first so type errors still identify the current session.
+	var raw json.RawMessage
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 131072)).Decode(&raw); err != nil {
+		errorReply("invalid JSON", 400)
+		return
+	}
+	var envelope struct {
+		Action  string `json:"action"`
+		Session string `json:"session"`
+	}
+	_ = json.Unmarshal(raw, &envelope)
+	action, responseSession = envelope.Action, envelope.Session
+	validation = true
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	_, hasValidSamples := fields["validSamples"]
+	if envelope.Action == "chunk" && !hasValidSamples {
+		errorReply("client outdated; reload page", 426)
+		return
+	}
+	if err := json.Unmarshal(raw, &b); err != nil {
 		errorReply("invalid JSON", 400)
 		return
 	}
 	responseSession = b.Session
+	validSamples := 0
+	if b.ValidSamples != nil {
+		validSamples = *b.ValidSamples
+	}
 	if b.Action != "start" && b.Action != "chunk" && b.Action != "cancel" && b.Action != "finish" {
 		errorReply("action", 400)
 		return
@@ -144,11 +176,11 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 		errorReply("samples", 400)
 		return
 	}
-	if b.Action == "chunk" && (b.ValidSamples < 1 || b.ValidSamples > len(b.Samples)) {
+	if b.Action == "chunk" && (validSamples < 1 || validSamples > len(b.Samples)) {
 		errorReply("validSamples", 400)
 		return
 	}
-	if b.Action != "chunk" && (len(b.Samples) != 0 || b.ValidSamples != 0) {
+	if b.Action != "chunk" && (len(b.Samples) != 0 || validSamples != 0) {
 		errorReply("control payload", 400)
 		return
 	}
@@ -158,6 +190,7 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	validation = false
 	if !asrReady.Load() {
 		errorReply("ASR unavailable", 503)
 		return
@@ -224,7 +257,7 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		var frame bytes.Buffer
 		command := map[string]uint32{"start": 1, "chunk": 2, "finish": 3, "cancel": 4}[b.Action]
-		for _, word := range []uint32{0x35524c58, 1, command, current.id, uint32(len(samples)), uint32(b.ValidSamples)} {
+		for _, word := range []uint32{0x35524c58, 1, command, current.id, uint32(len(samples)), uint32(validSamples)} {
 			_ = binary.Write(&frame, binary.LittleEndian, word)
 		}
 		_ = binary.Write(&frame, binary.LittleEndian, samples)
@@ -282,5 +315,76 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(out)
 	case <-time.After(10 * time.Second):
 		fail()
+	}
+}
+
+// Validation errors cancel only the supplied current token. Slot ownership keeps
+// the worker exchange serialized with in-flight chunks/finish and new starts.
+func releaseInvalidASR(token string) {
+	current := asrCurrent.Load()
+	if token == "" || current == nil || current.token != token {
+		return
+	}
+	current.cancelled.Store(true)
+	select {
+	case asrSlot <- struct{}{}:
+	case <-time.After(12 * time.Second):
+		asrReady.Store(false)
+		asrCurrent.CompareAndSwap(current, nil)
+		if asrCmd != nil {
+			asrCmd.Process.Kill()
+		}
+		return
+	}
+	defer func() { <-asrSlot }()
+	if asrCurrent.Load() != current {
+		return
+	}
+	defer asrCurrent.CompareAndSwap(current, nil)
+	if !asrReady.Load() {
+		return
+	}
+	done := make(chan error, 1)
+	go func() {
+		var frame bytes.Buffer
+		for _, word := range []uint32{0x35524c58, 1, 4, current.id, 0, 0} {
+			_ = binary.Write(&frame, binary.LittleEndian, word)
+		}
+		_, err := asrIn.Write(frame.Bytes())
+		var n uint32
+		if err == nil {
+			err = binary.Read(asrOut, binary.LittleEndian, &n)
+		}
+		if err == nil && (n == 0 || n > 16384) {
+			err = fmt.Errorf("invalid ASR cancel length %d", n)
+		}
+		var out struct {
+			Kind    string `json:"kind"`
+			Session uint32 `json:"session"`
+		}
+		if err == nil {
+			data := make([]byte, n)
+			_, err = io.ReadFull(asrOut, data)
+			if err == nil {
+				err = json.Unmarshal(data, &out)
+			}
+			if err == nil && (out.Kind != "ack" || out.Session != current.id) {
+				err = fmt.Errorf("invalid ASR cancel reply")
+			}
+		}
+		done <- err
+	}()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		err = fmt.Errorf("ASR cancel timeout")
+	}
+	if err != nil {
+		log.Println("ASR validation cancel:", err)
+		asrReady.Store(false)
+		if asrCmd != nil {
+			asrCmd.Process.Kill()
+		}
 	}
 }

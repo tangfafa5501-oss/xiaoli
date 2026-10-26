@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -220,7 +219,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	msg, _ := failMsg.Load().(string)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"version": "v0.5-dev", "asr_protocol": 1, "asr_partial": asrPartial.Load(), "ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load(), "asr_ready": asrReady.Load(), "asr_finished": asrFinished.Load()})
+	json.NewEncoder(w).Encode(map[string]any{"version": "v0.5-dev", "build": serverBuild(), "asr_protocol": 1, "asr_partial": asrPartial.Load(), "ready": ready.Load(), "failed": failed.Load(), "message": msg, "tts_ready": ttsReady.Load(), "asr_ready": asrReady.Load(), "asr_finished": asrFinished.Load()})
 }
 
 // /api/alive is a long-lived event stream; while at least one window holds it open we stay running.
@@ -280,6 +279,7 @@ func watchWindows(start time.Time, quit chan<- struct{}) {
 }
 
 func main() {
+	serverBuild()
 	exe, _ := os.Executable()
 	appDir = filepath.Dir(exe)
 	dataDir = userDataDir()
@@ -325,9 +325,8 @@ func main() {
 	go startTTS()
 	go startASR()
 
-	sub, _ := fs.Sub(webFS, "web")
 	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.FS(sub)))
+	mux.Handle("/", webHandler())
 	mux.HandleFunc("/api/chat", handleChat)
 	mux.HandleFunc("/api/tts", handleTTS)
 	mux.HandleFunc("/api/asr", handleASR)

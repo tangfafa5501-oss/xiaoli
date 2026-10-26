@@ -53,7 +53,7 @@ jobs:
         run: |
           cd launcher
           go vet ./...
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsgui -s -w" -o ../build/小离.exe .
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsgui -s -w -X main.buildID=${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(date -u +%Y%m%dT%H%M%S%N)" -o ../build/小离.exe .
 
       - name: Download and verify CPU TTS assets
         run: python .github/release/prepare_tts.py build/tts-cache build/tts-stage
