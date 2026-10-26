@@ -330,6 +330,7 @@ func main() {
 	mux.HandleFunc("/api/chat", handleChat)
 	mux.HandleFunc("/api/tts", handleTTS)
 	mux.HandleFunc("/api/asr", handleASR)
+	mux.HandleFunc("/api/log", handleClientLog)
 	mux.HandleFunc("/api/status", handleStatus)
 	mux.HandleFunc("/api/alive", handleAlive)
 	srv := &http.Server{Handler: mux}

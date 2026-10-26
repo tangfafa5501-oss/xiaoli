@@ -196,7 +196,7 @@ function stopAudio() {
 }
 function unlockAudio() {
   if (!audioContext) audioContext = new AudioContext();
-  if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+  if (audioContext.state === 'suspended' && !ttsSuspended) audioContext.resume().catch(() => {});
 }
 voice.onclick = () => {
   muted = !muted;
@@ -370,8 +370,8 @@ async function ask(fromChat=false) {
   const text = input.value.trim();
   if (!text || busy) return;
   const chatRound=chatMode.enabled ? chatMode.epoch : -1;
-  stopAudio();
-  if (!muted) unlockAudio();
+  stopAudio();setBusy(true);
+  if (!muted) {await resumeTTS();unlockAudio();if(audioContext?.state==='suspended') await Promise.race([audioContext.resume().catch(()=>{}),micWait(800)]);}
   chips.classList.add('hidden');
   input.value = ''; autosize();
   addBubble('me', text);
@@ -478,25 +478,53 @@ function micState() {
   mic.setAttribute('aria-pressed',String(!!recording));
   mic.setAttribute('aria-label',chatMode.enabled ? '打断当前轮，重新听你说' : recording ? '正在听，再点结束；Esc 取消' : '点按开始，再点结束；按住说话，滑出取消');
 }
+let pendingMicSession='',ttsSuspended=false,ttsResume=Promise.resolve();
+const micWait=ms=>new Promise(r=>setTimeout(r,ms));
+function resumeTTS() {
+  if(ttsSuspended && !muted && audioContext) {
+    ttsSuspended=false;ttsResume=Promise.race([audioContext.resume().catch(()=>{}),micWait(800)]);
+  }
+  return ttsResume;
+}
+function micLog(event,stage,err={},rec=recording) {
+  const data={event,stage,name:err.name||'',message:err.serverMessage||err.message||'',status:err.status||0,action:err.action||'',
+    muted,ttsState:audioContext?.state||'none',ttsRate:audioContext?.sampleRate||0,ttsPlaying:!!activeSource,
+    micRate:rec?.context?.sampleRate||0,chatMode:chatMode.state,ua:navigator.userAgent};
+  console.warn(data);fetch('/api/log',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).catch(()=>{});
+}
+function reportMicFailure(stage,err) {
+  micLog('mic_failure',stage,err);
+  let message='这次没听清，先打字告诉我吧。';
+  if(['NotAllowedError','SecurityError'].includes(err.name)) message='麦克风还没获准使用，先打字告诉我吧。';
+  else if(['NotFoundError','OverconstrainedError'].includes(err.name)) message='没有找到麦克风，先打字告诉我吧。';
+  else if(['NotReadableError','AbortError'].includes(err.name)) message='麦克风正被占用或在切换设备（比如蓝牙耳机），稍等一下再点一次。';
+  else if([409,429].includes(err.status)) message='上一段录音还在收尾，稍等一秒再点。';
+  else if(err.status===503) message='耳朵暂时没准备好，先打字告诉我吧。';
+  else if(err.name==='TimeoutError') message='我这会儿听得有点慢，先打字告诉我吧。';
+  else if(['audiocontext','worklet','source','resume'].includes(stage)) message='录音通道没打开，先打字告诉我吧。';
+  micFailure(message+'（代码 '+(err.status||err.name||'Error')+'@'+stage+'）');
+}
 function releaseMic(rec) {
   if (rec.timer) clearTimeout(rec.timer);
   if (rec.stream) rec.stream.getTracks().forEach(t => t.stop());
   if (rec.node) rec.node.disconnect();
   if (rec.source) rec.source.disconnect();
   if (rec.context && rec.context.state!=='closed') rec.context.close().catch(()=>{});
+  resumeTTS();
 }
 async function asrRequest(body) {
-  const r = await fetch('/api/asr',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
+  let r;try {r = await fetch('/api/asr',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});} catch(e) {throw Object.assign(new Error(e.message),{name:e.name,status:0,action:body.action,serverMessage:''});}
   if(r.status===426) {
     let build;
     try {build=(await (await fetch('/api/status',{cache:'no-store'})).json()).build;} catch(e) {}
     if(reloading || reloadForBuild(build || 'protocol-426',true)) return new Promise(()=>{});
     chatMode.close();cancelMic();
-    throw new Error('client outdated');
+    throw Object.assign(new Error('client outdated'),{name:'ASRError',status:426,action:body.action,serverMessage:'client outdated'});
   }
-  if (!r.ok) throw new Error('ASR unavailable');
-  return r.json();
+  if (!r.ok) {let b={};try {b=await r.json();} catch(e) {if(e.name==='TimeoutError') throw Object.assign(new Error(e.message),{name:e.name,status:r.status,action:body.action,serverMessage:''});}
+    throw Object.assign(new Error(b.message||'ASR unavailable'),{name:'ASRError',status:r.status,action:body.action,serverMessage:b.message||''});}
+  try {return await r.json();} catch(e) {throw Object.assign(new Error(e.message),{name:e.name,status:r.status,action:body.action,serverMessage:''});}
 }
 const recorder=new XiaoliRecording({
   render(value,temporary,status) {
@@ -511,7 +539,7 @@ const recorder=new XiaoliRecording({
   cancel(rec) {
     recording=null;releaseMic(rec);micState();
     // Invalidate locally immediately. Also notify Go while finish may own the pipe.
-    const remote=rec.session ? asrRequest({action:'cancel',session:rec.session}).catch(()=>{}) : Promise.resolve();
+    const remote=rec.session ? asrRequest({action:'cancel',session:rec.session}).then(()=>{if(pendingMicSession===rec.session) pendingMicSession='';}).catch(()=>{}) : Promise.resolve();
     micCleanup=Promise.all([rec.setup?.catch(()=>{}),rec.chain?.catch(()=>{}),remote]).then(()=>{});
   },
   committed(rec,text) {
@@ -533,14 +561,14 @@ function cancelMic() { recorder.cancel(); }
 function micFailure(message) { if(chatMode.enabled) chatMode.close();cancelMic();addBubble('her',message); }
 function queueChunk(rec,data) {
   if(!recorder.live(rec)) return;
-  if(++rec.queued>16) {micFailure('我这会儿听得有点慢，先打字告诉我吧。');return;}
+  if(++rec.queued>16) {reportMicFailure('chunk',Object.assign(new Error('chunk backlog'),{name:'TimeoutError'}));return;}
   rec.chain=rec.chain.then(async()=>{
     if(!recorder.live(rec)) return;
     const result=await asrRequest({action:'chunk',session:rec.session,
       samples:Array.from(data.samples),validSamples:data.validSamples});
     recorder.result(rec,result);
     if(rec.chatEpoch!==undefined) chatMode.activity(rec.chatEpoch,result.voiceActive===true,data.validSamples/16);
-  }).catch(()=>{if(recorder.live(rec)) micFailure('耳朵暂时没准备好，先打字告诉我吧。');})
+  }).catch(e=>{if(recorder.live(rec)) reportMicFailure('chunk',e);})
     .finally(()=>{rec.queued--;});
 }
 function startMic(rec) {
@@ -549,36 +577,55 @@ function startMic(rec) {
   chips.classList.add('hidden');
   stopAudio();if(chatAbort) chatAbort.abort();
   rec.setup=(async()=>{
+    let stage='getUserMedia',since=performance.now();const timings={};
+    const mark=s=>{const now=performance.now();timings[stage]=(timings[stage]||0)+Math.round(now-since);since=now;stage=s;};
     try {
-      rec.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
+      const capture=()=>navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
+      try {rec.stream=await capture();} catch(e) {
+        if(!['NotReadableError','AbortError'].includes(e.name)) throw e;
+        if(audioContext?.state==='running') {ttsSuspended=true;await audioContext.suspend();}
+        console.warn('MIC_RETRY getUserMedia',e.name);await micWait(600);
+        if(!recorder.live(rec)) {resumeTTS();return;}
+        rec.stream=await capture();
+      }
       if(!recorder.live(rec)) {releaseMic(rec);return;}
       // A hold released while permission was pending must never open later.
       if(rec.phase==='finishing') {cancelMic();return;}
       await cleanup;
       if(!recorder.live(rec)) {releaseMic(rec);return;}
-      const started=await asrRequest({action:'start'});rec.session=started.session;
+      mark('asr-start');
+      if(pendingMicSession) {await asrRequest({action:'cancel',session:pendingMicSession});pendingMicSession='';}
+      let started;
+      for(let attempt=0;;attempt++) {
+        try {started=await asrRequest({action:'start'});break;}
+        catch(e) {if(![409,429].includes(e.status)||attempt>=3) throw e;await micWait(400);if(!recorder.live(rec)) return;}
+      }
+      rec.session=started.session;pendingMicSession=rec.session;
       if(!recorder.live(rec)) {releaseMic(rec);await asrRequest({action:'cancel',session:rec.session});return;}
-      rec.context=new AudioContext({sampleRate:16000});
-      if(rec.context.sampleRate!==16000) throw new Error('sample rate');
+      mark('audiocontext');
+      try {rec.context=new AudioContext({sampleRate:16000});} catch(e) {rec.context=new AudioContext();}
+      if(rec.context.sampleRate!==16000) {await rec.context.close();rec.context=new AudioContext();}
+      mark('source');
+      try {rec.source=rec.context.createMediaStreamSource(rec.stream);}
+      catch(e) {await rec.context.close();mark('audiocontext');rec.context=new AudioContext();mark('source');rec.source=rec.context.createMediaStreamSource(rec.stream);}
+      mark('worklet');
       await rec.context.audioWorklet.addModule('/asr-capture.js');
       if(!recorder.live(rec)) {releaseMic(rec);return;}
-      rec.source=rec.context.createMediaStreamSource(rec.stream);
-      rec.node=new AudioWorkletNode(rec.context,'xiaoli-capture');
+      rec.node=new AudioWorkletNode(rec.context,'xiaoli-capture',{processorOptions:{inputRate:rec.context.sampleRate}});
       rec.node.port.onmessage=({data})=>{
         if(data.kind==='flushed') {rec.flushAck?.();return;}
         if(data.kind==='chunk') queueChunk(rec,data);
       };
-      rec.source.connect(rec.node);rec.node.connect(rec.context.destination);
-      await rec.context.resume();
+      mark('source');rec.source.connect(rec.node);rec.node.connect(rec.context.destination);
+      mark('resume');await rec.context.resume();
       if(!recorder.live(rec)) {releaseMic(rec);return;}
-      recorder.ready(rec);
+      recorder.ready(rec);mark('listening');
+      micLog('mic_start','resume',{message:JSON.stringify(timings)},rec);
       console.info('ASR_LISTEN',JSON.stringify({at:performance.now(),chatEpoch:rec.chatEpoch}));
       rec.timer=setTimeout(()=>{if(recorder.live(rec)) recorder.stop();},30000);
     } catch(e) {
-      releaseMic(rec);
-      if(!recorder.live(rec)) return;
-      micFailure(e.name==='NotAllowedError' ? '麦克风还没获准使用，先打字告诉我吧。' :
-        e.name==='NotFoundError' ? '没有找到麦克风，先打字告诉我吧。' : '耳朵暂时没准备好，先打字告诉我吧。');
+      if(!recorder.live(rec)) {releaseMic(rec);return;}
+      reportMicFailure(stage,e);
     }
   })();
 }
@@ -590,7 +637,7 @@ async function finishMic(rec) {
     if(!recorder.live(rec)) return;
     if(!rec.node) {cancelMic();return;}
     await new Promise((resolve,reject)=>{
-      const timeout=setTimeout(()=>reject(new Error('flush timeout')),2000);
+      const timeout=setTimeout(()=>reject(Object.assign(new Error('flush timeout'),{name:'TimeoutError'})),2000);
       rec.flushAck=()=>{clearTimeout(timeout);resolve();};
       rec.node.port.postMessage({kind:'flush',id:rec.epoch});
     });
@@ -598,8 +645,9 @@ async function finishMic(rec) {
     await rec.chain; // Port FIFO ensures the tail was appended before flush ACK.
     if(!recorder.live(rec)) return;
     const final=await asrRequest({action:'finish',session:rec.session});
+    if(pendingMicSession===rec.session) pendingMicSession='';
     recorder.result(rec,final);
-  } catch(e) {if(recorder.live(rec)) micFailure('耳朵暂时没准备好，先打字告诉我吧。');}
+  } catch(e) {if(recorder.live(rec)) reportMicFailure('finish',e);}
 }
 mic.addEventListener('pointerdown',e=>{
   if(e.button!==0) return;if(chatMode.enabled){e.preventDefault();chatMode.interrupt();return;}e.preventDefault();mic.setPointerCapture(e.pointerId);
@@ -633,7 +681,7 @@ async function pollASR() {
     mic.disabled=micFailed || !s.asr_ready || !s.ready;
     if(!s.asr_ready && (asrEverReady || s.asr_finished) && !micWarned) {
       micWarned=true; if(chatMode.enabled)chatMode.close();if(recording) cancelMic();
-      addBubble('her','耳朵暂时没准备好，先打字告诉我吧。');
+      reportMicFailure('poll',Object.assign(new Error('asr_ready false'),{name:'ASRError',status:503}));
     }
   } catch(e) {mic.disabled=true;}
   setTimeout(pollASR,1000);
