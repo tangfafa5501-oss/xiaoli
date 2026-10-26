@@ -61,7 +61,7 @@ UI 默认声音开启，欢迎语默认文字；首次实际播放依赖点击/�
 Smoke 每 100 ms 对启动器进程树中的 小离.exe、llama-server.exe、xiaoli-tts.exe 采样 RSS，记录同时刻合计峰值和各进程峰值（不含 Edge）。TTS 首音频是 WAV endpoint 首字节时间，不是实体声卡播放延迟。失败使 job 失败；无论成功与否保存 metrics 和日志。Windows 实机、声音设备和主观音质仍需人工确认。
 
 
-## v0.5-dev 第一阶段本地离线输入
+## v0.5-dev 第二阶段本地离线输入
 
 另编译 `tts/asr_worker.c` 为 `runtime/tts/xiaoli-asr.exe`（Linux 为 `xiaoli-asr`），与 TTS 共用同目录 sherpa 1.13.8 DLL。
 Windows 编译命令与 TTS 相同，只替换源码为 `tts/asr_worker.c`、输出为 `xiaoli-asr.exe`。
