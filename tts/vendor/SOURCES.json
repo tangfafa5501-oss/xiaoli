@@ -32,5 +32,18 @@
     "url": "https://raw.githubusercontent.com/snakers4/silero-vad/master/LICENSE",
     "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b",
     "retrieved": "2026-10-25"
+  },
+  "LICENSE-X-ASR": {
+    "url": "https://raw.githubusercontent.com/Gilgamesh-J/X-ASR/838297cd47fed858e6cf72eaf5a52f948a3edd73/LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "retrieved": "2026-10-26",
+    "model_card": "https://huggingface.co/GilgameshWind/X-ASR-zh-en/blob/689ff18c584d29910da37b6fe904db0c1489c9d1/README.md"
+  },
+  "X-ASR-zh-en": {
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05.tar.bz2",
+    "sha256": "14919f03b74d9001fc8f2689c2ab1ea42c436db269e8c809144492f41612bfff",
+    "license": "Apache-2.0",
+    "deployment_manifest": "models/asr/streaming-zh-en/MODEL.json",
+    "model_card": "https://huggingface.co/GilgameshWind/X-ASR-zh-en/blob/689ff18c584d29910da37b6fe904db0c1489c9d1/README.md"
   }
 }

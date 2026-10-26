@@ -1,0 +1,27 @@
+{
+  "name": "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05",
+  "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05.tar.bz2",
+  "archive_bytes": 134369642,
+  "sha256": "14919f03b74d9001fc8f2689c2ab1ea42c436db269e8c809144492f41612bfff",
+  "license": "Apache-2.0",
+  "license_source": "https://raw.githubusercontent.com/Gilgamesh-J/X-ASR/838297cd47fed858e6cf72eaf5a52f948a3edd73/LICENSE",
+  "model_card": "https://huggingface.co/GilgameshWind/X-ASR-zh-en/blob/689ff18c584d29910da37b6fe904db0c1489c9d1/README.md",
+  "files": {
+    "encoder.int8.onnx": {
+      "bytes": 155278641,
+      "sha256": "7cbe8ee82e9124b30f7b4ca3df0d35b1e72ab7d45feed4143119b173e674de4e"
+    },
+    "decoder.onnx": {
+      "bytes": 11309084,
+      "sha256": "fd2ac10c5936a1411f7a68e669e8cfec882b17791dd2ca44ab9baf69bb8ab855"
+    },
+    "joiner.int8.onnx": {
+      "bytes": 2581422,
+      "sha256": "82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba"
+    },
+    "tokens.txt": {
+      "bytes": 59240,
+      "sha256": "ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf"
+    }
+  }
+}

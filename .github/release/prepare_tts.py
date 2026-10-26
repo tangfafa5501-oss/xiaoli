@@ -2,7 +2,9 @@
 import hashlib, json, pathlib, shutil, sys, tarfile, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+STREAMING = json.loads((ROOT / "tts/streaming-model.json").read_text(encoding="utf-8"))
 ASSETS = {
+    "streaming-zh-en.tar.bz2": (STREAMING["url"], STREAMING["sha256"]),
     "sensevoice-int8.tar.bz2": ("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
         "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"),
     "silero_vad.onnx": ("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
@@ -44,6 +46,19 @@ def prepare(cache, stage):
     source = cache / 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
     for name in ['model.int8.onnx', 'tokens.txt', 'LICENSE', 'README.md']:
         shutil.copy2(source / name, asr / name)
+    streaming = asr / 'streaming-zh-en'
+    streaming.mkdir()
+    for name, expected in STREAMING['files'].items():
+        src = cache / STREAMING['name'] / name
+        with src.open('rb') as f:
+            digest = hashlib.file_digest(f, 'sha256').hexdigest()
+        if src.stat().st_size != expected['bytes'] or digest != expected['sha256']:
+            raise ValueError(f'streaming model file mismatch: {name}')
+        shutil.copy2(src, streaming / name)
+    shutil.copy2(ROOT / 'tts/vendor/LICENSE-X-ASR', streaming / 'LICENSE')
+    shutil.copy2(ROOT / 'tts/streaming-model.json', streaming / 'MODEL.json')
+    shutil.copy2(cache / STREAMING['name'] / 'README.md', streaming)
+    manifest['streaming_deployment'] = STREAMING
     shutil.copy2(cache / 'silero_vad.onnx', asr)
     shutil.copy2(ROOT / 'tts/testdata/asr-test.wav', asr)
     runtime = stage / 'runtime/tts'

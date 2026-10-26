@@ -46,3 +46,18 @@ v0.4 offline speech input:
   listed above. No additional Python/runtime dependency and no cloud ASR.
 - Built-in asr-test.wav is synthetic speech generated locally using the bundled
   MIT MeloTTS model; text: 你好小离，今天天气怎么样？ No human voice recording.
+
+
+v0.5 streaming preview:
+- X-ASR-zh-en, Gilgamesh-J/X-ASR contributors and participating institutions
+  (Shanghai Jiao Tong University, Shanghai Innovation Institute, Fudan University,
+  Huazhong University of Science and Technology). Model card and project LICENSE:
+  Apache License 2.0, permits redistribution under its terms.
+  https://huggingface.co/GilgameshWind/X-ASR-zh-en
+  https://github.com/Gilgamesh-J/X-ASR
+  sherpa-onnx conversion: sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05
+  https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+  Unmodified int8 encoder/joiner, original FP32 decoder and tokens only.
+  Deployment hashes/source: models/asr/streaming-zh-en/MODEL.json;
+  complete license: models/asr/streaming-zh-en/LICENSE and
+  runtime/tts/licenses/LICENSE-X-ASR. Existing SenseVoice remains the final ASR.

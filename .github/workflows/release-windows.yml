@@ -5,7 +5,7 @@ on:
     inputs:
       tag:
         description: Release tag
-        default: v0.4
+        default: v0.5
       base_tag:
         description: Existing release supplying the compatible base zip (read only)
         default: v0.3
@@ -69,7 +69,7 @@ jobs:
       - name: Keep Windows TTS stage and launcher for local test packages
         uses: actions/upload-artifact@v4
         with:
-          name: windows-v0.4-test-no-gguf-stage
+          name: windows-v0.5-test-no-gguf-stage
           retention-days: 7
           if-no-files-found: error
           path: |
@@ -99,7 +99,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-v0.4-validation
+          name: windows-v0.5-validation
           path: |
             build/sha256.txt
             build/size-bytes.txt

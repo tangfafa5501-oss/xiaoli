@@ -469,7 +469,7 @@ function queueChunk(rec,data) {
     if(!recorder.live(rec)) return;
     const result=await asrRequest({action:'chunk',session:rec.session,
       samples:Array.from(data.samples),validSamples:data.validSamples});
-    recorder.result(rec,result); // Reserved for phase 2 partial revisions.
+    recorder.result(rec,result);
   }).catch(()=>{if(recorder.live(rec)) micFailure('耳朵暂时没准备好，先打字告诉我吧。');})
     .finally(()=>{rec.queued--;});
 }
@@ -544,10 +544,14 @@ mic.addEventListener('keyup',e=>{if(e.key===' ' || e.key==='Enter') {e.preventDe
 window.addEventListener('keydown',e=>{if(e.key==='Escape') cancelMic();});
 window.addEventListener('blur',cancelMic);
 document.addEventListener('visibilitychange',()=>{if(document.hidden) cancelMic();});
+let partialWarned=false;
 async function pollASR() {
   try {
     const s=await (await fetch('/api/status',{cache:'no-store'})).json();
     if(s.asr_ready) asrEverReady=true;
+    if(s.asr_ready && !s.asr_partial && !partialWarned) {
+      partialWarned=true;addBubble('her','实时预览暂时没准备好，松开后仍会整理文字。');
+    }
     mic.disabled=micFailed || !s.asr_ready || !s.ready;
     if(!s.asr_ready && (asrEverReady || s.asr_finished) && !micWarned) {
       micWarned=true; if(recording) cancelMic();

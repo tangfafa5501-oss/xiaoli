@@ -1,6 +1,6 @@
 """Build the final Windows zip: base zip (everything except the model) + the model file.
 Keeps the 小离/... layout and UTF-8 file names (zipfile sets the UTF-8 flag for non-ASCII names)."""
-import hashlib, sys, zipfile, pathlib
+import hashlib, sys, zipfile, pathlib, json
 
 base, model, expected_sha, out, tts_stage, launcher = sys.argv[1:7]
 
@@ -42,4 +42,11 @@ with zipfile.ZipFile(out) as z:
     assert not bad, bad
     for n in ["小离/小离.exe", "小离/使用说明.txt", "小离/runtime/llama-server.exe", target, "小离/models/tts/LICENSE", "小离/models/tts/README.md", "小离/runtime/tts/xiaoli-tts.exe", "小离/THIRD_PARTY_NOTICES.txt", "小离/models/asr/model.int8.onnx", "小离/models/asr/tokens.txt", "小离/models/asr/silero_vad.onnx", "小离/models/asr/asr-test.wav", "小离/models/asr/LICENSE", "小离/runtime/tts/xiaoli-asr.exe", "小离/runtime/tts/licenses/LICENSE-SenseVoice", "小离/runtime/tts/licenses/LICENSE-Silero"]:
         assert n in z.namelist(), n
+    streaming = json.loads((pathlib.Path(__file__).resolve().parents[2] / 'tts/streaming-model.json').read_text())
+    for name, expected in streaming['files'].items():
+        data = z.read('小离/models/asr/streaming-zh-en/' + name)
+        assert len(data) == expected['bytes'] and hashlib.sha256(data).hexdigest() == expected['sha256'], name
+    for name in ['LICENSE','MODEL.json','README.md']:
+        assert '小离/models/asr/streaming-zh-en/' + name in z.namelist(), name
+    assert '小离/runtime/tts/licenses/LICENSE-X-ASR' in z.namelist()
 print("assembled", out)

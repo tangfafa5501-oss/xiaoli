@@ -22,6 +22,7 @@ import (
 
 var asrStop = make(chan struct{})
 var asrDone = make(chan struct{})
+var asrPartial atomic.Bool
 var asrReady atomic.Bool
 var asrSlot = make(chan struct{}, 1)
 var asrIn io.WriteCloser
@@ -33,6 +34,7 @@ func startASR() {
 	defer close(asrDone)
 	defer asrFinished.Store(true)
 	defer asrReady.Store(false)
+	defer asrPartial.Store(false)
 	name := "xiaoli-asr"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -66,7 +68,11 @@ func startASR() {
 	go func() { err := cmd.Wait(); asrReady.Store(false); log.Println("ASR exited:", err); close(exited) }()
 	reader := bufio.NewReader(out)
 	hello := make(chan bool, 1)
-	go func() { s, e := reader.ReadString('\n'); hello <- e == nil && s == "READY\n" }()
+	go func() {
+		s, e := reader.ReadString('\n')
+		asrPartial.Store(e == nil && s == "READY partial=1\n")
+		hello <- e == nil && (s == "READY\n" || s == "READY partial=1\n")
+	}()
 	select {
 	case ok := <-hello:
 		if !ok {
@@ -82,7 +88,7 @@ func startASR() {
 	asrIn = in
 	asrOut = reader
 	asrReady.Store(true)
-	log.Println("ASR ready (SenseVoice int8 + Silero, CPU, 4 threads)")
+	log.Println("ASR ready (SenseVoice int8 + Silero; optional streaming Zipformer, CPU)")
 	select {
 	case <-exited:
 	case <-asrStop:
@@ -95,6 +101,7 @@ type asrRecording struct {
 	token     string
 	id        uint32
 	cancelled atomic.Bool
+	revision  uint32
 }
 
 var asrCurrent atomic.Pointer[asrRecording]
@@ -258,7 +265,7 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		revision, validRevision := out["revision"].(float64)
-		if !validRevision || revision < 1 || revision > math.MaxUint32 || revision != math.Trunc(revision) {
+		if !validRevision || revision <= float64(current.revision) || revision > math.MaxUint32 || revision != math.Trunc(revision) {
 			fail()
 			return
 		}
@@ -266,6 +273,7 @@ func handleASR(w http.ResponseWriter, r *http.Request) {
 			errorReply("cancelled session", 409)
 			return
 		}
+		current.revision = uint32(revision)
 		out["session"] = current.token
 		if b.Action == "cancel" || out["kind"] == "final" {
 			asrCurrent.CompareAndSwap(current, nil)

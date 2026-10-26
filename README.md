@@ -53,3 +53,5 @@
 v0.5 仅本地分支，尚无下载包；上方下载链接为既有 v0.3。构建方式、许可说明见 BUILD.md 和 THIRD_PARTY_NOTICES.txt。
 
 本阶段修复亮背景可读性，预留 partial/revision 接口；尚未实现实时流式出字和聊天模式。
+
+录音中使用本地中英双语流式 Zipformer 显示浅灰临时字，松开后 SenseVoice 整理为白字；确认后按 Enter 或发送。流式模型缺失时仍可在停止后整理文字。

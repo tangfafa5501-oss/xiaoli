@@ -92,6 +92,7 @@ try:
     html = urllib.request.urlopen(base+'/').read().decode('utf-8')
     assert 'id="voice"' in html and '小离' in html and '/asr-state.js' in html
     wait_ready(base)
+    assert json.load(urllib.request.urlopen(base+'/api/status')).get('asr_partial') is True
     metrics['asr'] = test_builtin(base, app/'models/asr/asr-test.wav')
     metrics['tts'] = [test_tts(base, '早上好！今天天气不错。我在呢，有什么事直接跟我说，我帮你搞定。', 'tts-test.wav')]
     metrics['warm_short_clauses'] = [test_tts(base, text, f'short-{i}.wav') for i,text in enumerate(['早上好！', '今天有什么需要帮忙？']*3)]

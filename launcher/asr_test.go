@@ -74,7 +74,7 @@ func fakeReply(h [6]uint32) []byte {
 	if h[2] == 3 {
 		kind = "final"
 	}
-	b, _ := json.Marshal(map[string]any{"kind": kind, "session": h[3], "revision": 1, "text": "完整文字"})
+	b, _ := json.Marshal(map[string]any{"kind": kind, "session": h[3], "revision": h[2], "text": "完整文字"})
 	return b
 }
 func TestASRCommands(t *testing.T) {
@@ -166,5 +166,89 @@ func TestASRBadWorkerFrame(t *testing.T) {
 				t.Fatal(w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestASRPartialRevisionAndFallback(t *testing.T) {
+	for _, partial := range []bool{true, false} {
+		t.Run(map[bool]string{true: "partial", false: "missing-model-final-only"}[partial], func(t *testing.T) {
+			var revision uint32
+			fakeASR(t, func(h [6]uint32) []byte {
+				revision++
+				kind := "ack"
+				if h[2] == 2 && partial {
+					kind = "partial"
+				}
+				if h[2] == 3 {
+					kind = "final"
+				}
+				data, _ := json.Marshal(map[string]any{"kind": kind, "session": h[3], "revision": revision, "text": "中英 Excel"})
+				return data
+			})
+			session := startFake(t)
+			pcm, _ := json.Marshal(make([]float32, 512))
+			for i := 0; i < 3; i++ {
+				w := asrHTTP(`{"action":"chunk","session":"` + session + `","samples":` + string(pcm) + `,"validSamples":512}`)
+				var out map[string]any
+				json.Unmarshal(w.Body.Bytes(), &out)
+				expected := "ack"
+				if partial {
+					expected = "partial"
+				}
+				if w.Code != 200 || out["kind"] != expected || out["revision"] != float64(i+2) {
+					t.Fatal(w.Code, w.Body.String())
+				}
+			}
+			w := asrHTTP(`{"action":"finish","session":"` + session + `"}`)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"kind":"final"`) {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		})
+	}
+}
+func TestASRCancelDiscardsLatePartial(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	fakeASR(t, func(h [6]uint32) []byte {
+		if h[2] != 2 {
+			return fakeReply(h)
+		}
+		close(entered)
+		<-release
+		data, _ := json.Marshal(map[string]any{"kind": "partial", "session": h[3], "revision": 2, "text": "迟到"})
+		return data
+	})
+	session := startFake(t)
+	pcm, _ := json.Marshal(make([]float32, 512))
+	result := make(chan *httptest.ResponseRecorder, 1)
+	cancel := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		result <- asrHTTP(`{"action":"chunk","session":"` + session + `","samples":` + string(pcm) + `,"validSamples":512}`)
+	}()
+	<-entered
+	go func() { cancel <- asrHTTP(`{"action":"cancel","session":"` + session + `"}`) }()
+	deadline := time.Now().Add(time.Second)
+	for !asrCurrent.Load().cancelled.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("cancel timeout")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	if w := <-result; w.Code != 409 || strings.Contains(w.Body.String(), "迟到") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := <-cancel; w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+func TestASRRejectsRegressingRevision(t *testing.T) {
+	fakeASR(t, func(h [6]uint32) []byte {
+		data, _ := json.Marshal(map[string]any{"kind": "ack", "session": h[3], "revision": 1})
+		return data
+	})
+	session := startFake(t)
+	if w := asrHTTP(`{"action":"cancel","session":"` + session + `"}`); w.Code != 503 || asrReady.Load() {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }

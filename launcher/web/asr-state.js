@@ -34,7 +34,7 @@ class XiaoliRecording {
     rec.revision=result.revision;
     const text=(result.text||'').replace(/<\|[^|]*\|>/g,'').trim();
     const value=rec.draft.slice(0,rec.cursor)+text+rec.draft.slice(rec.cursor);
-    if(result.kind==='partial') {this.hooks.render?.(value,true,'正在听');return true;}
+    if(result.kind==='partial') {this.hooks.render?.(value,true,rec.phase==='finishing' ? '正在整理文字' : '正在听');return true;}
     this.current=null;this.pressAt=null;
     this.hooks.render?.(value,false,'');this.hooks.committed?.(rec,text);
     if(rec.sendPending) this.hooks.send?.(rec);

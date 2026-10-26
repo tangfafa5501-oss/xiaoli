@@ -30,3 +30,21 @@ test('normal final never sends; cancel clears queued send',()=>{
  for(const cancel of [true,false]) {const {r,events}=setup();r.down(0,'草稿');const rec=r.current;rec.session='s';r.stop();if(cancel){r.requestSend();r.cancel();}
  r.result(rec,{kind:'final',session:'s',revision:2,text:'文字'});assert.equal(events.filter(e=>e[0]==='send').length,0);}
 });
+test('multiple partials replace insertion, retain draft, and keep finishing label',()=>{
+ const {r,events}=setup();r.down(0,'前后',1);const rec=r.current;rec.session='s';
+ for(const [revision,text] of [[2,'请'],[4,'请打开'],[8,'请打开 Excel']]) {
+  assert(r.result(rec,{kind:'partial',session:'s',revision,text}));
+  assert.deepEqual(events.at(-1),['render','前'+text+'后',true,'正在听']);
+ }
+ r.stop();assert(r.result(rec,{kind:'partial',session:'s',revision:9,text:'请打开 Excel 文件'}));
+ assert.equal(events.at(-1)[3],'正在整理文字');
+ assert(r.result(rec,{kind:'final',session:'s',revision:10,text:'请帮我打开excel文件。'}));
+ assert.deepEqual(events.filter(e=>e[0]==='render').at(-1),['render','前请帮我打开excel文件。后',false,'']);
+ assert.equal(events.filter(e=>e[0]==='send').length,0);
+});
+test('cancel after preview restores original draft and discards late partial',()=>{
+ const {r,events}=setup();r.down(0,'草稿尾',2);const rec=r.current;rec.session='s';
+ r.result(rec,{kind:'partial',session:'s',revision:2,text:'预览'});r.cancel();
+ assert.deepEqual(events.filter(e=>e[0]==='render').at(-1),['render','草稿尾',false,'']);
+ assert.equal(r.result(rec,{kind:'partial',session:'s',revision:99,text:'迟到'}),false);
+});
