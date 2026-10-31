@@ -93,4 +93,4 @@ SenseVoice 权重采用 FunASR MODEL_LICENSE v1.1；商用说明及待澄清细�
 CI ASR smoke 必须实际录音节奏喂音频、收到非空 partial，再断言最终“天气/怎么样”。
 
 ## v0.6 2D 状态动画资源
-动画源视频位于仓库外；无音频 VP9 WebM 可用：`ffmpeg -i input.mp4 -an -vf "scale='min(1280,iw)':-2" -c:v libvpx-vp9 -crf 38 -b:v 0 -deadline good -cpu-used 2 -row-mt 1 output.webm`。资源放在 `launcher/web/anim/`，由 Go 的 `web/*` embed 离线打包。
+动画源视频位于仓库外；五段统一编码为无音轨 H.264 MP4（idle 使用同画幅高质量缩放）：`ffmpeg -i input.mp4 -an -vf "scale=1280:720:flags=lanczos" -c:v libx264 -preset slow -crf 22 -pix_fmt yuv420p -movflags +faststart output.mp4`。资源放在 `launcher/web/anim/`，由 Go 的 `web/*` embed 离线打包；播放使用单层循环，同态循环不会重新加载或交叉淡入。

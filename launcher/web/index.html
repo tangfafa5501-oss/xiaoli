@@ -153,21 +153,39 @@
 <script src="/avatar-state.js"></script>
 <script>
 const avatarRoot=document.getElementById('avatar');
-const avatarVideos=[0,1].map(()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.loop=false;avatarRoot.appendChild(v);return v;});
-let avatarLayer=0, avatarState='idle', avatarFailed=false, avatarRequest=0;
+const avatarVideos=[0,1].map(()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.loop=true;avatarRoot.appendChild(v);return v;});
+let avatarLayer=0, avatarState='', avatarFailed=false, avatarRequest=0, avatarPending=false;
 function showAvatar(state){
-  avatarState=state; const request=++avatarRequest; if(avatarFailed)return;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const src='/anim/'+state+'.webm';
-  if(reduced){avatarVideos.forEach(v=>v.pause());const v=avatarVideos[avatarLayer];v.dataset.state=state;v.src=src;v.currentTime=0;avatarVideos.forEach(x=>x.classList.toggle('active',x===v));return;}
+  const src='/anim/'+state+'.mp4';
+  if(state===avatarState && avatarPending)return;
+  const current=avatarVideos[avatarLayer];
+  const same=state===avatarState && current.dataset.state===state && (current.currentSrc.endsWith('/'+state+'.mp4')||current.src.endsWith('/'+state+'.mp4')||(current.getAttribute('src')||'')===src);
+  if(same){
+    current.loop=!reduced;
+    if(reduced){if(!current.paused)current.pause();if(current.currentTime!==0)current.currentTime=0;}
+    else if(current.paused)current.play().catch(()=>{});
+    return;
+  }
+  avatarState=state; avatarPending=true; const request=++avatarRequest; if(avatarFailed){avatarPending=false;return;}
   const old=avatarVideos[avatarLayer],target=avatarVideos[1-avatarLayer];
-  target.onended=()=>{if(target.classList.contains('active'))showAvatar(state);};
-  target.dataset.state=state;target.src=src;target.currentTime=0;
-  target.play().then(()=>{
-    if(request!==avatarRequest){target.pause();return;}
-    target.classList.add('active');old.classList.remove('active');avatarLayer=1-avatarLayer;
-    setTimeout(()=>{if(!old.classList.contains('active'))old.pause();},390);
-  }).catch(()=>{if(request===avatarRequest){avatarFailed=true;avatarRoot.replaceChildren();}});
+  target.pause();target.classList.remove('active');target.dataset.state=state;target.loop=!reduced;target.src=src;target.currentTime=0;
+  const ready=target.readyState>=2?Promise.resolve():new Promise((resolve,reject)=>{
+    const ok=()=>{cleanup();resolve();},bad=()=>{cleanup();reject(new Error('video load failed'));};
+    const cleanup=()=>{target.removeEventListener('loadeddata',ok);target.removeEventListener('error',bad);};
+    target.addEventListener('loadeddata',ok,{once:true});target.addEventListener('error',bad,{once:true});
+  });
+  ready.then(()=>{
+    if(request!==avatarRequest)return;
+    if(reduced){target.pause();target.currentTime=0;target.classList.add('active');old.classList.remove('active');old.pause();avatarLayer=1-avatarLayer;avatarPending=false;return;}
+    return target.play().then(()=>{
+      if(request!==avatarRequest){target.pause();return;}
+      if(target.readyState<2){target.pause();throw new Error('video frame unavailable');}
+      target.classList.add('active');old.classList.remove('active');avatarLayer=1-avatarLayer;
+      avatarPending=false;
+      setTimeout(()=>{if(!old.classList.contains('active'))old.pause();},390);
+    });
+  }).catch(()=>{if(request===avatarRequest){avatarPending=false;avatarFailed=true;avatarRoot.replaceChildren();}});
 }
 const avatar=new XiaoliAvatarState(showAvatar); showAvatar('idle');
 window.__xiaoliSetAvatarState=s=>avatar.set(s);
