@@ -15,6 +15,9 @@
   .app { position: relative; width: 100%; height: 100%; overflow: hidden;
     background: url(office_morning.jpg) 62% center / cover no-repeat; }
   .avatar { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .avatar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(10,12,20,.47), transparent 8%),
+      linear-gradient(to bottom, transparent 60%, rgba(10,12,20,.78)); }
   .avatar video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:62% center;
     opacity:0; transition:opacity 360ms ease; }
   .avatar video.active { opacity:1; }
@@ -476,7 +479,7 @@ async function ask(fromChat=false) {
   clearTimeout(responseTimeout);
   if(chatAbort===controller) setBusy(false);
   await synthChain; await playChain;
-  if(!chatMode.enabled && !recording && avatar.current!=='sorry') avatar.set('idle');
+  if(!chatMode.enabled && !recording) avatar.set('idle');
   chatMode.done(chatRound);
 }
 
@@ -576,6 +579,7 @@ const recorder=new XiaoliRecording({
   finish(rec) { finishMic(rec); },
   cancel(rec) {
     recording=null;releaseMic(rec);micState();
+    if(!chatMode.enabled) avatar.set('idle');
     // Invalidate locally immediately. Also notify Go while finish may own the pipe.
     const remote=rec.session ? asrRequest({action:'cancel',session:rec.session}).then(()=>{if(pendingMicSession===rec.session) pendingMicSession='';}).catch(()=>{}) : Promise.resolve();
     micCleanup=Promise.all([rec.setup?.catch(()=>{}),rec.chain?.catch(()=>{}),remote]).then(()=>{});
