@@ -77,7 +77,7 @@ ASR worker 独立常驻，cwd 为 `models/asr`；`READY partial=1` 握手后（�
 点按麦克风开始，再点结束；按住至少 300ms 后松开结束。滑出按钮、Esc、失焦会取消并恢复原草稿。停止后仅在光标处填入文字，Enter/发送按钮才发送；整理期间按发送会等待 final 后发送一次。开麦会先停掉小离的朗读与旧回复。
 录音/整理期间 textarea 整框 #cbd5e1、暂时只读，final 恢复白字。旧自动发送设置在页面加载时删除。
 `asr-state.js` 为纯状态机；录音中用 partial 单调 revision 替换本轮插入区，final 正常白字提交；取消有 epoch 围栏。
-`/api/status` 返回 version=v0.5-dev、asr_protocol=1、asr_partial=true（流式模型缺失则 false，只有 final）。发布逻辑不变，默认 publish=false。
+`/api/status` 返回 version=v0.6-dev、asr_protocol=1、asr_partial=true（流式模型缺失则 false，只有 final）。发布逻辑不变，默认 publish=false。
 本地检查：`cd launcher && go test -race ./... && go vet ./... && go build`；Windows `GOOS=windows GOARCH=amd64 go build`；`node --test launcher/tests/*.cjs`（仓库根）；`python .github/release/check_contrast.py`。
 浏览器要求 AudioWorklet、getUserMedia 和 16kHz AudioContext（当前 Windows Edge/Chrome）。
 模型缺失、进程崩溃和权限/设备错误只禁用麦克风，重新打开页面可重新请求权限。
@@ -91,3 +91,6 @@ SenseVoice 权重采用 FunASR MODEL_LICENSE v1.1；商用说明及待澄清细�
 固定资产及逐文件字节/hash 见 `tts/streaming-model.json`；Apache-2.0，原始 FP32 decoder 是官方 int8 发布包唯一 decoder。
 `prepare_tts.py` 校验压缩包及部署文件；`assemble.py` 再核对最终 ZIP。缺任一流式文件时仍能用 SenseVoice final，前端温和提示预览不可用。
 CI ASR smoke 必须实际录音节奏喂音频、收到非空 partial，再断言最终“天气/怎么样”。
+
+## v0.6 2D 状态动画资源
+动画源视频位于仓库外；无音频 VP9 WebM 可用：`ffmpeg -i input.mp4 -an -vf "scale='min(1280,iw)':-2" -c:v libvpx-vp9 -crf 38 -b:v 0 -deadline good -cpu-used 2 -row-mt 1 output.webm`。资源放在 `launcher/web/anim/`，由 Go 的 `web/*` embed 离线打包。

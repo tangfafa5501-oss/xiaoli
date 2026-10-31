@@ -14,6 +14,13 @@
     background: #20222b; color: rgb(255,252,246); overflow: hidden; }
   .app { position: relative; width: 100%; height: 100%; overflow: hidden;
     background: url(office_morning.jpg) 62% center / cover no-repeat; }
+  .avatar { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .avatar video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:62% center;
+    opacity:0; transition:opacity 360ms ease; }
+  .avatar video.active { opacity:1; }
+  @media (min-width:760px) and (max-aspect-ratio:5/4) { .avatar video { object-position:28% center; } }
+  @media (max-width:759px) { .avatar video { object-position:35% center; } }
+  @media (prefers-reduced-motion:reduce) { .avatar video { transition:none; } }
   .app::before { content: ""; position: absolute; inset: 0; pointer-events: none;
     background: linear-gradient(to bottom, rgba(10,12,20,.47), transparent 8%),
       linear-gradient(to bottom, transparent 60%, rgba(10,12,20,.78)); }
@@ -115,6 +122,7 @@
 </head>
 <body>
 <div class="app">
+  <div class="avatar" id="avatar" aria-hidden="true"></div>
   <div class="info"><div class="date" id="date"></div><div class="greeting" id="greeting"></div></div>
   <button class="voice" id="voice" aria-pressed="false">声音开启</button>
   <div class="chat" id="chat"></div>
@@ -139,7 +147,29 @@
 <script src="/build-state.js"></script>
 <script src="/asr-state.js"></script>
 <script src="/chat-state.js"></script>
+<script src="/avatar-state.js"></script>
 <script>
+const avatarRoot=document.getElementById('avatar');
+const avatarVideos=[0,1].map(()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.loop=false;avatarRoot.appendChild(v);return v;});
+let avatarLayer=0, avatarState='idle', avatarFailed=false, avatarRequest=0;
+function showAvatar(state){
+  avatarState=state; const request=++avatarRequest; if(avatarFailed)return;
+  const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const src='/anim/'+state+'.webm';
+  if(reduced){avatarVideos.forEach(v=>v.pause());const v=avatarVideos[avatarLayer];v.dataset.state=state;v.src=src;v.currentTime=0;avatarVideos.forEach(x=>x.classList.toggle('active',x===v));return;}
+  const old=avatarVideos[avatarLayer],target=avatarVideos[1-avatarLayer];
+  target.onended=()=>{if(target.classList.contains('active'))showAvatar(state);};
+  target.dataset.state=state;target.src=src;target.currentTime=0;
+  target.play().then(()=>{
+    if(request!==avatarRequest){target.pause();return;}
+    target.classList.add('active');old.classList.remove('active');avatarLayer=1-avatarLayer;
+    setTimeout(()=>{if(!old.classList.contains('active'))old.pause();},390);
+  }).catch(()=>{if(request===avatarRequest){avatarFailed=true;avatarRoot.replaceChildren();}});
+}
+const avatar=new XiaoliAvatarState(showAvatar); showAvatar('idle');
+window.__xiaoliSetAvatarState=s=>avatar.set(s);
+avatarVideos.forEach(v=>v.addEventListener('error',()=>{avatarFailed=true;avatarRoot.replaceChildren();}));
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>showAvatar(avatarState));
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const send = document.getElementById('send');
@@ -193,6 +223,7 @@ function stopAudio() {
   if (flushSubtitle) { flushSubtitle(); flushSubtitle = null; }
   audioEpoch++;
   if (activeSource) { try { activeSource.stop(); } catch(e) {} activeSource = null; }
+  if(avatarState==='speaking') avatar.set('idle');
 }
 function unlockAudio() {
   if (!audioContext) audioContext = new AudioContext();
@@ -241,6 +272,7 @@ function queueSentence(text, reveal = () => {}) {
       source.onended = () => { console.info('TTS_END',JSON.stringify({at:performance.now(),epoch}));if (activeSource === source) activeSource = null; resolve(); };
       console.info('TTS_PLAY', JSON.stringify({text, delay_ms:performance.now()-completed, duration:buffer.duration, send_to_play_ms:lastSendAt === null ? null : performance.now()-lastSendAt, output_latency_ms:1000*(audioContext.outputLatency || audioContext.baseLatency || 0)}));
       chatMode.speaking(chatMode.epoch);
+      avatar.set('speaking');
       source.start();
     });
   }).catch(e => console.info('TTS playback fallback', String(e)));
@@ -341,6 +373,7 @@ function setBusy(b) {
   send.disabled = b || chatMode.enabled;
   input.disabled = false;
   if (!b) input.focus();
+  if(b) avatar.set('thinking');
 }
 
 async function typeOut(el, text) {
@@ -413,6 +446,7 @@ async function ask(fromChat=false) {
           const j = JSON.parse(data);
           const piece = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
           if (piece) {
+            if(!raw) avatar.set('speaking');
             raw += piece;
             const shown = tidy(raw);
             if (shown) {
@@ -434,6 +468,7 @@ async function ask(fromChat=false) {
       bubble.textContent = tidy(raw).trim() || '我在听，你说。';
       if (raw.trim()) history.push({role:'assistant', content:tidy(raw)});
     } else {
+      avatar.set('sorry');
       bubble.textContent = '哎呀，我刚才走神了，没听清。你能再说一遍吗？';
       history.pop();
     }
@@ -441,6 +476,7 @@ async function ask(fromChat=false) {
   clearTimeout(responseTimeout);
   if(chatAbort===controller) setBusy(false);
   await synthChain; await playChain;
+  if(!chatMode.enabled && !recording && avatar.current!=='sorry') avatar.set('idle');
   chatMode.done(chatRound);
 }
 
@@ -457,6 +493,7 @@ const chatButton=document.getElementById('chat-mode');
 const chatMode=new XiaoliChat({
   delay:(fn,ms)=>setTimeout(fn,ms),
   state(state) {
+    avatar.set(state==='listening'?'listening':state==='thinking'?'thinking':state==='speaking'?'speaking':'idle');
     chatButton.setAttribute('aria-pressed',String(chatMode.enabled));
     send.disabled=busy || chatMode.enabled;
     if(typeof mic!=='undefined') mic.setAttribute('aria-label',chatMode.enabled ? '打断当前轮，重新听你说' : '点按开始，再点结束；按住说话，滑出取消');
@@ -535,7 +572,7 @@ const recorder=new XiaoliRecording({
     if(chatMode.enabled) status={listening:'听你说',thinking:'思考中',speaking:'小离在说',guard:'稍等，马上听你说'}[chatMode.state]||status;
     asrStatus.textContent=status;asrStatus.classList.toggle('hidden',!status);autosize();
   },
-  start(rec) { if(chatMode.enabled) rec.chatEpoch=chatMode.epoch;recording=rec;micState();startMic(rec); },
+  start(rec) { if(chatMode.enabled) rec.chatEpoch=chatMode.epoch;recording=rec;avatar.set('listening');micState();startMic(rec); },
   finish(rec) { finishMic(rec); },
   cancel(rec) {
     recording=null;releaseMic(rec);micState();
@@ -548,7 +585,7 @@ const recorder=new XiaoliRecording({
     if(rec.chatEpoch!==undefined) {
       if(chatMode.final(rec.chatEpoch,text)) ask(true);
       else input.value=rec.draft;
-    }
+    } else avatar.set('idle');
     console.info('ASR_FINAL',JSON.stringify({text,at:performance.now()}));
   },
   async send(rec) {
@@ -559,7 +596,7 @@ const recorder=new XiaoliRecording({
   }
 });
 function cancelMic() { recorder.cancel(); }
-function micFailure(message) { if(chatMode.enabled) chatMode.close();cancelMic();addBubble('her',message); }
+function micFailure(message) { avatar.set('sorry');if(chatMode.enabled) chatMode.close();cancelMic();addBubble('her',message); }
 function queueChunk(rec,data) {
   if(!recorder.live(rec) || !data.samples.length) return;
   const chunkStats={n:data.samples.length,validSamples:data.validSamples,maxAbs:Array.from(data.samples).reduce((m,v)=>Math.max(m,Number.isFinite(v)?Math.abs(v):0),0)};
